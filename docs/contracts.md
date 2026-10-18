@@ -83,3 +83,18 @@ when the upstream is unreachable), and the sender's outbox retries.
 Defined in ClinicHub `src/ClinicHub.Api/Integrations/OrderCatalog.cs` (`FhirSystems`). Service requests:
 `urn:clinichub:{clinic}:service-request`. Ontario health card and CPSO use the Canadian baseline systems; OHIP billing
 number and the health card version-code extension are ClinicHub URNs.
+
+## Open questions for the hub
+
+The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Check them with a real results token
+(its payload is JSON between the two dots, base64url) and correct this file.
+
+1. Signing algorithm: `RS256`. If ClinicHub signs with another, `TokenValidator` must list it.
+2. Header `typ`: `at+jwt` (OpenIddict). Accepted, as are `JWT` and none.
+3. `scope`: a space-separated string (`"results"`); a JSON array is accepted too.
+4. Client id claim: `client_id`, else `azp`, else `sub`. It is only used for the log.
+5. `aud` of a results token (client credentials): unknown. Route `clinichub` therefore does **not** check the
+   audience (`allowed-audiences` empty). Put it in the route once known.
+6. Does a results token carry `clinic_slug`? Not needed: the log takes the clinic from the `basedOn` identifier.
+7. `iss` is exactly `http://localhost:5301/` (trailing slash) and the keys are at `…/.well-known/jwks`.
+

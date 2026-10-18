@@ -25,10 +25,16 @@ curl localhost:5700/actuator/health
 Spotless format check; `mvn spotless:apply` fixes formatting. Settings: `HUB_DB_URL`, `HUB_DB_USER`, `HUB_DB_PASSWORD`.
 Image: `docker build -t integrationhub .`
 
+## Using the relay
+
+A sender posts to `http://localhost:5700/route/{route}/fhir` instead of the application directly, with the token it
+already has. Routes are in `hub.routes` (`application.yml`); the first is `clinichub`. To undo, point the sender back
+at the application. Every call, including refusals, is a row in `message` (metadata only, never the body).
+
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
-- [ ] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub)
+- [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
 - [ ] Phase 2 — orders, cancels, financial documents
 - [ ] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
 - [ ] Phase 4 — HL7 v2 in (external lab ORU) and out (OLIS simulation)

@@ -11,8 +11,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Phase 0: only health and info are open. Everything else answers 401 until phase 1 adds the token
- * check on the relay routes.
+ * Health, info and the relay routes are open to Spring Security. The relay checks the sender's
+ * token itself (see {@code TokenValidator}) so that a refusal is written to the message log like
+ * any other call. Everything else answers 401.
  */
 @Configuration
 class SecurityConfig {
@@ -23,6 +24,8 @@ class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(EndpointRequest.to(HealthEndpoint.class, InfoEndpoint.class))
+                    .permitAll()
+                    .requestMatchers("/route/**", "/error")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

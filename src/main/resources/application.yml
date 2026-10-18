@@ -25,3 +25,17 @@ management:
       mode: simple
     build:
       enabled: true
+
+hub:
+  auth:
+    # ClinicHub (OpenIddict). Keys are read from {issuer}.well-known/jwks unless jwks-uri is set.
+    issuer: ${HUB_AUTH_ISSUER:http://localhost:5301/}
+    jwks-uri: ${HUB_AUTH_JWKS_URI:}
+  max-body-bytes: 33554432
+  routes:
+    # Results from LabFlow and ClinicReport to ClinicHub: /route/clinichub/fhir
+    clinichub:
+      upstream: ${HUB_ROUTE_CLINICHUB_UPSTREAM:http://localhost:5300}
+      timeout: 30s
+      connect-timeout: 5s
+      required-scopes: [results]

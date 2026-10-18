@@ -49,7 +49,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | Phase | What | Status |
 |---|---|---|
 | 0 | Skeleton: build, health, CI, Docker, local compose | **Done** |
-| 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | Not started |
+| 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done** in the hub; the two sender settings below are still to be changed |
 | 2 | Orders, cancels and financial documents through the hub | Not started |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | Not started |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | Not started |
@@ -97,6 +97,52 @@ are open; every other path answers `401` until phase 1 adds the token check. Not
 
 **Done when:** a result released in LabFlow and a report signed in ClinicReport reach ClinicHub's results inbox
 through the hub, and the log shows both.
+
+**Built (this repository):**
+
+- `hub.routes.*` (`HubProperties`): upstream URL, timeout, connect timeout, allowed audiences, required scopes. Route
+  `clinichub` → `http://localhost:5300`, scope `results`. `hub.auth.issuer` / `hub.auth.jwks-uri`.
+- `POST /route/{route}/fhir[/**]` (`RelayController`): token check, then body, `Authorization`, `Content-Type`,
+  `Accept` and `X-Request-Id` forwarded (an id is added when the sender sent none), `X-Forwarded-For/Proto/Host`
+  added. Status, body and headers of the answer come back unchanged, except hop-by-hop headers, and Tomcat writes
+  `Content-Type: type;charset=x` without the space. No redirects followed, no retry.
+- Refusals are FHIR `OperationOutcome`: `401` (missing or invalid token: signature, issuer, expiry, scope, audience; with
+  `WWW-Authenticate: Bearer`), `404` unknown route or `.`/`..` in the path, `413` body over `hub.max-body-bytes`
+  (32 MB), `502` upstream unreachable, `504` upstream timeout, `503` when ClinicHub's keys cannot be fetched.
+- `BundleSummary` (HAPI R4, parser warnings switched off because they can quote values): resource types and counts,
+  Bundle id and type, DiagnosticReport statuses, and the order identifiers from `basedOn` (as `identifier` or as
+  `…|id` / `ServiceRequest?identifier=…|id` references) with the clinic slug taken from
+  `urn:clinichub:{clinic}:service-request`. A body that does not parse is forwarded and logged `parsed: false`.
+- `MessageLog`: one row per call, refusals included, metadata only (no body column). Migration `V2` adds
+  `response_status` (what the sender was told); `upstream_status` stays empty when nothing was forwarded. A failing
+  log write is reported and does not stop the relay.
+- Tests (42 in all): WireMock as ClinicHub and as its JWKS; tokens signed RS256 with `typ: at+jwt`; pass-through of
+  200/400/409/422/500/503 and a byte-exact body with non-ASCII text; 502, 504; 401 for no token, garbage, wrong issuer,
+  expired, wrong key, wrong or no scope, wrong audience (nothing forwarded each time); log rows and identifiers;
+  a check that no marker from the body reaches the database or the application log.
+- Found by those tests: ClinicHub's tokens are marked `typ: at+jwt`, which Spring's decoder refuses by default.
+  `TokenValidator` accepts `JWT`, `at+jwt` and no type.
+
+**Not built:**
+
+- `hub.payloads.store` (encrypted bodies, access log): the log has no body column at all for now.
+- A `503` test for unreachable JWKS (the code path exists).
+- Anything other than `POST` and `/fhir`: phase 2. Note for it: Tomcat rejects a raw `|` in a query string, and the
+  cancel is `?identifier=urn:…|42`; set `server.tomcat.relaxed-query-chars` (and test with the .NET client's encoding)
+  when adding `PUT`.
+- Not seen working with the real LabFlow, ClinicReport and ClinicHub (they are not available to this session).
+
+**Other repositories — to do locally, not done:**
+
+1. LabFlow and ClinicReport: point the setting that holds ClinicHub's FHIR address at
+   `http://localhost:5700/route/clinichub` (they then post to `…/route/clinichub/fhir`). I do not know the setting
+   names; look for where `POST {clinichub}/fhir` is built. Write in each README how to switch back (the old value).
+   **Check first** that the token request (`/connect/token`, issuer `http://localhost:5301/`) does not use the same
+   setting: it must still go straight to ClinicHub, the hub does not relay it.
+2. Confirm the open questions in [contracts.md](contracts.md#open-questions-for-the-hub) against a real token (copy the
+   payload of one result token, without the signature, into a comment there).
+3. ClinicHub: nothing yet. The `integrationhub` client is first needed in phase 4.
+
 
 ### Phase 2 — Orders, cancels, finance
 
