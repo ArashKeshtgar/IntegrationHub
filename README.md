@@ -6,7 +6,7 @@ and financial documents between ClinicHub, [LabFlow](https://github.com/ArashKes
 [PharmaFlow](https://github.com/ArashKeshtgar/Drugstore) pass through it, so there is one log of what was sent and
 what came back, and one place that speaks HL7 v2 to the outside world.
 
-Java 21 · Spring Boot 3 · HAPI FHIR R4 / HL7 v2 · PostgreSQL · RabbitMQ · Testcontainers.
+Java 21 · Spring Boot 3 · HAPI FHIR R4 · HL7 v2 over MLLP · PostgreSQL · RabbitMQ · Testcontainers.
 
 - Plan and phases: [docs/architecture.md](docs/architecture.md)
 - What the applications send each other today: [docs/contracts.md](docs/contracts.md)
@@ -38,13 +38,28 @@ at the application. Every call, including refusals, is a row in `message` (metad
 - `GET /actuator/prometheus` (metrics) and `GET /api/messages` (search of the log) need a ClinicHub token with
   `integrationhub:messages.view`; with `--spring.profiles.active=dev` a call from this machine needs none.
 
+## HL7 v2
+
+Results from an external lab arrive as ORU^R01 over MLLP on `:2575`, become a FHIR Bundle and go to ClinicHub; if
+ClinicHub is down they wait (encrypted) and are retried. Results the hub relays are also sent as ORU^R01 to an OLIS-style
+receiver. Off until `HUB_HL7_ENABLED=true`, `HUB_HL7_QUEUE_KEY` (`openssl rand -base64 32`) and
+`HUB_CLINICHUB_CLIENT_SECRET` are set; the export also needs `HUB_HL7_OUTBOUND_ENABLED=true` and
+`HUB_HL7_OUTBOUND_HOST`. Try it without a lab:
+
+```
+java tools/olis-sim/OlisSim.java --port 2576 --out /tmp/olis      # the receiver
+# hub: HUB_HL7_ENABLED=true HUB_HL7_OUTBOUND_ENABLED=true HUB_HL7_OUTBOUND_HOST=localhost ...
+```
+
+The listener has no TLS: keep it on a private network. Details and what is not built: docs/architecture.md, phase 4.
+
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
 - [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
 - [x] Phase 2 — orders, cancels, financial documents — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
 - [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
-- [ ] Phase 4 — HL7 v2 in (external lab ORU) and out (OLIS simulation)
+- [x] Phase 4 — HL7 v2 in (external lab ORU over MLLP) and out (OLIS simulation) — hub done; no TLS on the listener, not tried with a real lab or OLIS, ClinicHub needs the `integrationhub` client, see the phase in docs/architecture.md
 - [ ] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags
 - [ ] Phase 6 — admin web with ClinicHub sign-in, replay, alerts
 

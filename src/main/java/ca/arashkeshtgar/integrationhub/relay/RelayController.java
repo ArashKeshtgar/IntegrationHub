@@ -1,6 +1,7 @@
 package ca.arashkeshtgar.integrationhub.relay;
 
 import ca.arashkeshtgar.integrationhub.events.EventFactory;
+import ca.arashkeshtgar.integrationhub.hl7.Hl7Outbound;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -67,6 +69,7 @@ public class RelayController {
   private final MessageLog messages;
   private final EventFactory eventFactory;
   private final MeterRegistry meters;
+  private final Hl7Outbound hl7Outbound;
   private final Map<String, HttpClient> clients = new ConcurrentHashMap<>();
 
   public RelayController(
@@ -74,12 +77,14 @@ public class RelayController {
       TokenValidator tokens,
       MessageLog messages,
       EventFactory eventFactory,
-      MeterRegistry meters) {
+      MeterRegistry meters,
+      ObjectProvider<Hl7Outbound> hl7Outbound) {
     this.properties = properties;
     this.tokens = tokens;
     this.messages = messages;
     this.eventFactory = eventFactory;
     this.meters = meters;
+    this.hl7Outbound = hl7Outbound.getIfAvailable();
   }
 
   @RequestMapping("/route/{route}/**")
@@ -350,7 +355,10 @@ public class RelayController {
       log.error(
           "making events failed for route {}: {}", call.route(), e.getClass().getSimpleName());
     }
-    messages.write(call.build(upstreamStatus, responseStatus, ms, error), events);
+    messages.write(
+        call.build(upstreamStatus, responseStatus, ms, error),
+        events,
+        hl7Copy(call, upstreamStatus));
     record(call.route(), upstreamStatus, responseStatus, ms);
     log.info(
         "relay route={} status={} upstream={} ms={} note={}",
@@ -359,6 +367,24 @@ public class RelayController {
         upstreamStatus,
         ms,
         error);
+  }
+
+  /**
+   * A result that ClinicHub took (2xx on a POST to the clinichub route) is also queued as ORU^R01
+   * for the OLIS receiver, in the transaction of the log row. Null when that export is off.
+   */
+  private Runnable hl7Copy(CallContext call, Integer upstreamStatus) {
+    if (hl7Outbound == null
+        || !hl7Outbound.enabled()
+        || !"clinichub".equals(call.route())
+        || !"POST".equals(call.method())
+        || call.body() == null
+        || upstreamStatus == null
+        || upstreamStatus < 200
+        || upstreamStatus >= 300) {
+      return null;
+    }
+    return () -> hl7Outbound.enqueue(call.id(), call.body());
   }
 
   /** Counters and a latency histogram. The route tag is only ever a configured name. */

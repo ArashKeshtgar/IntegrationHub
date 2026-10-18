@@ -50,6 +50,28 @@ hub:
     mrn-system: urn:clinichub:{clinic}:mrn
     exchange: clinical.events
     queue: analytics.clinical-events
+  hl7:
+    # HL7 v2 (docs/architecture.md, phase 4): ORU^R01 in over MLLP -> FHIR -> ClinicHub, and an ORU^R01 copy of the
+    # results the hub relays to an OLIS-style receiver. Off until a queue key and the ClinicHub secret are set.
+    enabled: ${HUB_HL7_ENABLED:false}
+    # 32 random bytes, base64 (openssl rand -base64 32). Encrypts queued messages at rest.
+    queue-key: ${HUB_HL7_QUEUE_KEY:}
+    zone: ${HUB_HL7_ZONE:America/Toronto}
+    # MSH-3.MSH-4 of the senders to accept, e.g. EXTLAB.LAB1. Empty = any sender.
+    allowed-senders: ${HUB_HL7_ALLOWED_SENDERS:}
+    mllp:
+      port: ${HUB_HL7_MLLP_PORT:2575}
+      bind-address: ${HUB_HL7_MLLP_BIND:0.0.0.0}
+    clinichub:
+      token-url: ${HUB_CLINICHUB_TOKEN_URL:${HUB_AUTH_ISSUER:http://localhost:5301/}connect/token}
+      fhir-url: ${HUB_CLINICHUB_FHIR_URL:${HUB_ROUTE_CLINICHUB_UPSTREAM:http://localhost:5300}/fhir}
+      client-id: integrationhub
+      client-secret: ${HUB_CLINICHUB_CLIENT_SECRET:}
+      scope: results
+    outbound:
+      enabled: ${HUB_HL7_OUTBOUND_ENABLED:false}
+      host: ${HUB_HL7_OUTBOUND_HOST:}
+      port: ${HUB_HL7_OUTBOUND_PORT:2576}
   admin:
     # Reading the message log and metrics: a ClinicHub token with this permission.
     permission: integrationhub:messages.view

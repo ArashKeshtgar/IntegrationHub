@@ -18,6 +18,7 @@ final class CallContext {
   private Long requestSize;
   private String sha256;
   private BodySummary summary;
+  private byte[] body;
   private final Instant receivedAt = Instant.now();
   private HubProperties.BodyFormat format;
   private Optional<BodySummary.Identifier> queryIdentifier = Optional.empty();
@@ -51,6 +52,14 @@ final class CallContext {
     return senderClientId;
   }
 
+  byte[] body() {
+    return body;
+  }
+
+  UUID id() {
+    return id;
+  }
+
   String sha256() {
     return sha256;
   }
@@ -80,6 +89,7 @@ final class CallContext {
   }
 
   void body(byte[] body, String sha256, BodySummary summary) {
+    this.body = body;
     this.requestSize = (long) body.length;
     this.sha256 = sha256;
     this.summary = summary;

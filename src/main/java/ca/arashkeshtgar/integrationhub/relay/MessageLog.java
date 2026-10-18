@@ -72,11 +72,22 @@ public class MessageLog {
    * thrown. When it fails nothing is kept: neither the row nor its events.
    */
   public void write(Entry entry, EventFactory.Result events) {
+    write(entry, events, null);
+  }
+
+  /**
+   * The same, and {@code alsoInTransaction} runs in the same transaction after the row is written
+   * (the HL7 copy of a result): it commits or rolls back with the log row.
+   */
+  public void write(Entry entry, EventFactory.Result events, Runnable alsoInTransaction) {
     try {
       transaction.executeWithoutResult(
           status -> {
             try {
               insert(entry, events);
+              if (alsoInTransaction != null) {
+                alsoInTransaction.run();
+              }
             } catch (JsonProcessingException e) {
               throw new IllegalStateException(e);
             }

@@ -10,5 +10,5 @@ RUN useradd --system --uid 10001 hub
 USER hub
 WORKDIR /app
 COPY --from=build /src/target/integrationhub-*.jar app.jar
-EXPOSE 5700
+EXPOSE 5700 2575
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

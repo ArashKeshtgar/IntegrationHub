@@ -40,7 +40,7 @@ flowchart LR
 
 ## Stack
 
-Java 21, Spring Boot 3, Maven, HAPI FHIR structures R4 (parsing, validation), HAPI HL7 v2 (phase 4), Spring
+Java 21, Spring Boot 3, Maven, HAPI FHIR structures R4 (parsing, validation), an own small HL7 v2 parser (phase 4, see its decisions), Spring
 Security OAuth2 resource server (JWT), Spring Data JDBC + Flyway, PostgreSQL, RabbitMQ (phase 3), Micrometer +
 Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 
@@ -52,7 +52,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done** in the hub; the two sender settings below are still to be changed |
 | 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done** in the hub; not yet tried with the real applications |
-| 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | Not started |
+| 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | Not started |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | Not started |
 
@@ -284,6 +284,120 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 - **Out:** LabFlow's open item "HL7 v2 ORU export (OLIS simulation)": copy final lab results relayed in phase 1 to an
   OLIS simulator as ORU^R01 (configurable target; a small simulator under `tools/olis-sim` that logs and ACKs).
 - Mapping tables in code, with tests per segment; sample messages synthetic.
+
+**Built (this repository):**
+
+- **MLLP listener** on `:2575` (`hub.hl7.mllp.port`), one virtual thread per connection, many messages per connection,
+  each answered before the next is read. Frames over `max-message-bytes` (1 MiB), a bad end of frame or an idle
+  connection (`read-timeout`, 30 s) close the connection. Bytes between frames (a stray CR/LF) are skipped.
+- **Parser and mapping**, in code and tested per segment (`hl7/`): `Hl7Message` (any HL7 v2.x text: CR, LF or CRLF,
+  escapes `\F\ \S\ \T\ \R\ \E\ \Xhh\ \.br\`), `Hl7Tables` (all code tables in one file), `OruToFhir`
+  (MSH, ORC/OBR, OBX, NTE; PID is never read), `FhirToOru` (the reverse, for the export), `Hl7Time` (keeps precision).
+
+  | HL7 v2 | FHIR R4 |
+  |---|---|
+  | MSH-3.MSH-4, MSH-10 | sender id (`EXTLAB.LAB1`) and message id, used for de-duplication; Bundle id and resource ids are derived from them, so a resend gives the same ids |
+  | ORC-2 / OBR-2 placer order number `101^harbourview` (or the whole `urn:clinichub:harbourview:service-request` as the first component) | `DiagnosticReport.basedOn.identifier` = `urn:clinichub:harbourview:service-request\|101` |
+  | ORC-3 / OBR-3 filler order number | `DiagnosticReport.identifier` (`urn:integrationhub:hl7:{sender}:filler-order`) |
+  | OBR-4 | `DiagnosticReport.code` (LN → LOINC, SCT → SNOMED, an unknown system name → `urn:integrationhub:hl7:{sender}:{name}`) |
+  | OBR-7 / OBR-22 | `effectiveDateTime` / `issued` |
+  | OBR-25 (table 0123) | `status`: F final, C amended, X cancelled; P, R, A, O, I, S, Y are accepted and **not forwarded** (ClinicHub takes final, amended, cancelled) |
+  | OBX-2 NM / SN / ST, TX, FT / CE, CWE, CNE | `valueQuantity` (with `<`, `>`, `<=`, `>=` as comparator, unit from OBX-6 as UCUM) / `valueString` / `valueCodeableConcept` |
+  | OBX-3 | `Observation.code`; the Observations are `DiagnosticReport.result` |
+  | OBX-7 | `referenceRange` (text, and low/high when it is `a-b`, `<a` or `>a`) |
+  | OBX-8 (table 0078, repeating) | `interpretation` (v3 ObservationInterpretation); a flag not in the table is kept as text |
+  | OBX-11 (table 0085) | `Observation.status`; OBX-14, else OBR-7 → `effectiveDateTime` |
+  | NTE after an OBX / after the OBR | `Observation.note` / `DiagnosticReport.conclusion` |
+  | PID, PV1, NK1, … | **not read**. No patient is named in what goes to ClinicHub; it knows the patient from the order |
+
+  A message the hub cannot map completely (unknown result status, an OBX value type other than the above, a numeric
+  value that is not a number, no placer order number, an OBX before any OBR) is refused with AR; nothing is forwarded
+  with a value missing.
+- **Store-and-forward** (`hl7_inbound`, migration V4): the message is mapped, written, and handed to ClinicHub at once
+  as the client `integrationhub` (client credentials, scope `results`, token cached until 30 s before it expires).
+  If ClinicHub (or the network) does not take it (no answer, 408/425/429/5xx, 401) the row stays and the worker
+  (`hub.hl7.retry`) tries again after 10 s, 20 s, 40 s … up to 30 min, 12 attempts, then the row is `FAILED`. Any other
+  4xx from ClinicHub marks it `REJECTED` and is not retried.
+- **ACK**: `AA` = ClinicHub has it, or the message holds nothing to forward (a preliminary result); `AE` = the hub has it
+  and is retrying, do not resend; `AR` = refused for good. The ACK text is one of a few fixed phrases and never quotes
+  the message. A message the lab sends again (same sender and MSH-10) is recognised: AA if delivered, AE if still
+  waiting, and it is processed again only if the first attempt ended `FAILED` or `REJECTED`.
+- **Health information at rest**: the queued FHIR Bundle and the queued outbound ORU are encrypted (AES-256-GCM, key
+  `HUB_HL7_QUEUE_KEY`, bound to the row id) and the column is set to NULL when the row is delivered, rejected or
+  given up. The other columns hold sender, message id, status, counts and a fixed error word. Rows older than
+  `retention-days` (14) are purged. Nothing of a message is logged (only fixed reasons); each attempt is a row in
+  `message` (route `hl7`, method `MLLP` or `RETRY`, metadata only) and a delivered result makes the same events as a
+  relayed one (`result.final`, `result.amended`).
+- **Export to OLIS** (`hl7_outbound`): a POST to the `clinichub` route that ClinicHub answered 2xx is also queued, in the
+  transaction of its log row, as one ORU^R01 per final / amended / cancelled DiagnosticReport, and sent by a worker to
+  `hub.hl7.outbound.host:port` over MLLP; AA marks it sent, anything else is retried like the inbound side, then
+  `FAILED`. PID-3 holds only the patient **pseudonym** of the order (`UNKNOWN` when the hub does not know the order);
+  no name, birth date or health card number. A report whose values the mapping cannot express (e.g. a boolean) is
+  skipped as a whole and counted (`hub.hl7.outbound{result=skipped}`).
+- **`tools/olis-sim/OlisSim.java`**: `java tools/olis-sim/OlisSim.java --port 2576 --out received/ --mode accept|error|reject|silent`
+  prints one content-free line per message, ACKs, and optionally keeps each message as a file.
+- **Settings** (all off by default): `HUB_HL7_ENABLED`, `HUB_HL7_QUEUE_KEY` (32 random bytes, base64), 
+  `HUB_CLINICHUB_CLIENT_SECRET`, `HUB_CLINICHUB_TOKEN_URL` (default `{issuer}connect/token`), `HUB_CLINICHUB_FHIR_URL`
+  (default `{clinichub route upstream}/fhir`), `HUB_HL7_ALLOWED_SENDERS` (MSH-3.MSH-4, empty = any),
+  `HUB_HL7_ZONE` (for times written without a zone), `HUB_HL7_MLLP_PORT`/`BIND`, `HUB_HL7_OUTBOUND_ENABLED`/`HOST`/`PORT`.
+  With `hub.hl7.enabled=true` the application does not start without a valid queue key and the ClinicHub settings.
+- **Metrics**: `hub.hl7.inbound{result=delivered|retry|failed|rejected|duplicate|accepted-not-forwarded|…}`,
+  `hub.hl7.inbound.pending`, `hub.hl7.inbound.failed`, `hub.hl7.outbound{result=queued|sent|retry|failed|skipped}`.
+- Tests: 156 in all (51 new: parser and time, a test per mapping area against synthetic messages, framing, ACK,
+  cipher, settings, the MLLP server against a real PostgreSQL with ClinicHub played by WireMock — delivery, retry,
+  giving up, refusal, duplicates, no health information in logs or the log table — and the export against the real
+  `OlisSim` started as a process).
+
+**Decisions to check** (where the plan was not exact):
+
+- **Own HL7 parser instead of HAPI HL7 v2.** The plan listed HAPI HL7 v2. Its parsers are version specific and need a
+  structure definition per version (v2.3 ≠ v2.5.1) while labs mix versions; the hub only reads a handful of fields.
+  `Hl7Message` is about 270 lines and takes any version. If you want HAPI for validation against a profile, it can be
+  added next to it; nothing depends on the choice except the parser class.
+- **ACK semantics with store-and-forward**: AA is sent only when ClinicHub has the result, not when the hub has stored
+  it; AE (not AA) when it is stored and being retried. A lab that treats AE as "send again" is harmless (duplicates
+  are recognised), a lab that treats AE as a failure would raise a false alarm. If the lab wants AA on receipt,
+  change `Hl7Inbound.store` — it is one line, but then a result can be acknowledged and still end in `FAILED`.
+- **Placer order number format** (`101^harbourview` or the full URN) is an assumption: how an external lab is told the
+  order number is not defined anywhere yet (contracts.md, question 16).
+- **Preliminary and other non-final statuses are accepted and dropped**, because ClinicHub's results contract is
+  final / amended / cancelled (contracts.md flow 3).
+- **Character set**: ISO-8859-1 unless MSH-18 says UTF-8.
+- The export copies results the hub **relayed**, which are LabFlow's and ClinicReport's. It does not export results that
+  came in over HL7 (they would go back to where they came from).
+
+**Not built / not known:**
+
+- **No TLS on the MLLP listener or the export.** Run them on a private network or behind a TLS terminator (stunnel,
+  the load balancer). Anyone who can reach port 2575 can submit a result for any order; `allowed-senders` only checks
+  what the message says about itself. Mutual TLS or an allow-list by address is needed before a real lab connects.
+- **Not tried with a real lab, a real OLIS or a real ClinicHub.** Everything was run against synthetic messages, a
+  WireMock ClinicHub and `OlisSim`. The real OLIS message profile (required PID and ORC fields, health card number,
+  provider and facility identifiers, its own coding of test and specimen) is **not** implemented; the export is an
+  ORU^R01 in the shape of the hub's own results, for the simulator.
+- Only ORU^R01. No ORM (orders to an external lab), no ADT, no query.
+- OBX value types other than NM, SN (simple form), ST, TX, FT, CE, CWE, CNE are refused (no ED/RP attachments, no
+  dates, no repeating values). Specimen (SPM) and the OBR parent/child links are ignored.
+- A resend of a message whose first copy is still `PENDING` is not compared with it: the first content wins.
+- The `integrationhub` client in ClinicHub does not exist yet (see below); until it does the hub cannot deliver and
+  every inbound result waits and is finally `FAILED`.
+- GitHub Actions has not run on this phase (the tests were run in this session only).
+- No admin screen for the queues (phase 6): look at `hl7_inbound` / `hl7_outbound` (no content in them) and the
+  metrics; a `FAILED` row means the lab has to resend.
+
+**Other repositories — to do locally, not done:**
+
+1. ClinicHub: register the client `integrationhub` (client credentials) with scope `results` and make the results
+   endpoint accept a Bundle from it for an order that went to an **external** lab (today only LabFlow/ClinicReport
+   send results). Set `HUB_CLINICHUB_CLIENT_SECRET` to its secret. Confirm that the token endpoint is
+   `{issuer}connect/token`, or set `HUB_CLINICHUB_TOKEN_URL`.
+2. ClinicHub: decide how an order for an external lab gets its number to the lab, and make it the `101^harbourview`
+   form (order id, clinic slug) or the URN form, in ORC-2/OBR-2.
+3. ClinicHub: does it take the same Bundle twice (a resend after a lost answer)? The hub sends the same ids each time,
+   and an order that is already final may be answered 4xx, which marks the row `REJECTED`.
+4. The lab or its interface engine: point it at `hub:2575`, agree the sender id (MSH-3/MSH-4) and what it does with AE.
+5. Choose and keep the queue key (`HUB_HL7_QUEUE_KEY`). Losing it makes queued rows unreadable (they are then given
+   up after the retries); changing it with rows pending has the same effect.
 
 ### Phase 5 — Flows the platform lacks
 
