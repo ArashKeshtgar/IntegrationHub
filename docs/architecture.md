@@ -128,11 +128,16 @@ through the hub, and the log shows both.
 - `hub.payloads.store` (encrypted bodies, access log): the log has no body column at all for now.
 - A `503` test for unreachable JWKS (the code path exists).
 - Anything other than `POST` and `/fhir`: phase 2 (done).
-- Not seen working with the real LabFlow, ClinicReport and ClinicHub (they are not available to this session).
+- Seen with the real LabFlow and ClinicHub (2026-10-18, a developer machine): two released LabFlow results went
+  through the `clinichub` route with LabFlow's own token, ClinicHub answered 200 and completed the orders, and the hub
+  made their `result.final` events. Not yet seen with ClinicReport.
 
 **Other repositories — to do locally, not done:**
 
-1. LabFlow and ClinicReport: point the setting that holds ClinicHub's FHIR address at
+1. **LabFlow: done** — it had no such setting (results went to its OIDC `Authority` + `fhir`, the same setting as
+   sign-in), so it got one: `ClinicHub:ResultsUrl=http://localhost:5700/route/clinichub/fhir`; empty switches back.
+   The token request still goes straight to ClinicHub. ClinicReport: still to do —
+   point the setting that holds ClinicHub's FHIR address at
    `http://localhost:5700/route/clinichub` (they then post to `…/route/clinichub/fhir`). I do not know the setting
    names; look for where `POST {clinichub}/fhir` is built. Write in each README how to switch back (the old value).
    **Check first** that the token request (`/connect/token`, issuer `http://localhost:5301/`) does not use the same
