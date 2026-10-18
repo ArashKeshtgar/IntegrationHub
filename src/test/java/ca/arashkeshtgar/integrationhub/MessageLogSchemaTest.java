@@ -48,13 +48,17 @@ class MessageLogSchemaTest extends PostgresTestBase {
 
     Integer found =
         jdbc.queryForObject(
-            "select count(*) from message_identifier where system ="
+            "select count(*) from message_identifier where message_id = ? and system ="
                 + " 'urn:clinichub:harbourview:service-request' and value = '42'",
-            Integer.class);
+            Integer.class,
+            id);
     assertThat(found).isEqualTo(1);
 
     jdbc.update("delete from message where id = ?", id);
-    assertThat(jdbc.queryForObject("select count(*) from message_identifier", Integer.class))
+    // Other tests share the database: only this message's identifiers are counted.
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from message_identifier where message_id = ?", Integer.class, id))
         .isZero();
   }
 

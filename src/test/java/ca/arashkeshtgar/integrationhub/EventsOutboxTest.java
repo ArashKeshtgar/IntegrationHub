@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.RabbitMQContainer;
 
 /**
@@ -42,7 +43,9 @@ class EventsOutboxTest extends RelayTestBase {
 
   @DynamicPropertySource
   static void events(DynamicPropertyRegistry registry) {
-    registry.add("spring.rabbitmq.host", () -> "localhost");
+    // Where Docker publishes ports: localhost on a runner, another host when Docker is remote.
+    registry.add(
+        "spring.rabbitmq.host", () -> DockerClientFactory.instance().dockerHostIpAddress());
     registry.add("spring.rabbitmq.port", () -> BROKER_PORT);
     registry.add("hub.events.enabled", () -> "true");
     registry.add("hub.events.pseudonym-secret", () -> EventsTest.SECRET);
