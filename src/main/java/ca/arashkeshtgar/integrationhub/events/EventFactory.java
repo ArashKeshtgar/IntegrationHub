@@ -80,7 +80,11 @@ public class EventFactory {
     } else if ("PUT".equals(call.method())
         && call.path().endsWith("/ServiceRequest")
         && call.queryIdentifier().isPresent()) {
-      cancel(call, events);
+      cancel(
+          call,
+          call.queryIdentifier().get(),
+          call.summary().requestStatuses().stream().findFirst().orElse(null),
+          events);
     }
     return events.isEmpty() && newLinks.isEmpty() ? Result.NONE : new Result(events, newLinks);
   }
@@ -94,6 +98,12 @@ public class EventFactory {
     for (Facts.Order order : facts.orders()) {
       Optional<String> clinic = BodySummary.clinicOf(order.identifier().system());
       if (clinic.isEmpty()) {
+        continue;
+      }
+      // ClinicHub sends a cancel as a transaction Bundle whose entry is the ServiceRequest again,
+      // status revoked (a conditional PUT inside the Bundle): a cancel, not a new order.
+      if ("revoked".equals(order.status())) {
+        cancel(call, order.identifier(), order.status(), events);
         continue;
       }
       String orderId = orderId(order.identifier().value());
@@ -140,8 +150,8 @@ public class EventFactory {
     }
   }
 
-  private void cancel(Evidence call, List<ClinicalEvent> events) {
-    BodySummary.Identifier id = call.queryIdentifier().get();
+  private void cancel(
+      Evidence call, BodySummary.Identifier id, String requested, List<ClinicalEvent> events) {
     Optional<String> clinic = BodySummary.clinicOf(id.system());
     int status = call.upstreamStatus();
     String type =
@@ -153,7 +163,6 @@ public class EventFactory {
     }
     String orderId = orderId(id.value());
     Optional<OrderLinks.Link> link = links.find(clinic.get(), orderId);
-    String requested = call.summary().requestStatuses().stream().findFirst().orElse(null);
     events.add(
         event(
             type,

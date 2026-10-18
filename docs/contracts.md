@@ -41,8 +41,10 @@ call must stay **synchronous** through the hub. Receivers recognise a resent Bun
 ClinicHub config: `Integrations:LabFlow:FhirBaseUrl`, `Integrations:ClinicReport:FhirBaseUrl`.
 
 ### 2. Cancelling — ClinicHub → LabFlow / ClinicReport
-`PUT {app}/fhir/ServiceRequest?identifier=urn:clinichub:{clinic}:service-request|{id}` with `status: revoked` and
-the reason in a note. `200` = cancelled. **`409` + OperationOutcome = refused** (results entered, report started):
+**As ClinicHub sends it** (`FhirOrders.Cancel`, seen in a real run): `POST {app}/fhir`, a transaction Bundle whose one
+entry is the ServiceRequest again with `status: revoked`, the reason in a note, and `request` = `PUT
+ServiceRequest?identifier=urn:clinichub:{clinic}:service-request|{id}`. A direct
+`PUT {app}/fhir/ServiceRequest?identifier=…` (what this file first assumed) is relayed and recognised too. `200` = cancelled. **`409` + OperationOutcome = refused** (results entered, report started):
 an answer, not a failure — the hub must pass it through and must not retry it.
 
 ### 3. Results — LabFlow / ClinicReport → ClinicHub

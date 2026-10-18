@@ -340,6 +340,33 @@ class EventsTest extends RelayTestBase {
     receive(0);
   }
 
+  /**
+   * What ClinicHub really sends (FhirOrders.Cancel): a transaction Bundle POSTed to /fhir whose
+   * entry is the ServiceRequest again, status revoked. A cancel, never a new order.
+   */
+  @Test
+  void clinicHubsCancelBundleIsACancelNotANewOrder() throws Exception {
+    placeOrders("labflow");
+    receive(4);
+    String token = ContractFlowsTest.ordersToken("labflow");
+
+    LABFLOW.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));
+    postBundle("labflow", token, read("cancel-bundle.json"));
+    List<Message> cancelled = receive(1);
+    JsonNode event = body(cancelled.get(0));
+    assertThat(event.get("type").asText()).isEqualTo("order.cancelled");
+    assertThat(event.get("orderId").asText()).isEqualTo("service-request|101");
+    assertThat(event.get("status").asText()).isEqualTo("revoked");
+    assertThat(event.get("testCode").asText()).isEqualTo("718-7");
+    assertThat(event.get("patientPseudonym").asText())
+        .isEqualTo(hmac("harbourview", "MRN-MARKER-0001"));
+
+    LABFLOW.stubFor(post("/fhir").willReturn(aResponse().withStatus(409).withBody("{}")));
+    postBundle("labflow", token, read("cancel-bundle.json"));
+    assertThat(body(receive(1).get(0)).get("type").asText()).isEqualTo("order.cancel-refused");
+    receive(0);
+  }
+
   /** PUT with a body, which the base class's helper does not do. */
   final class ContractCaller {
     void put(String path, String token, byte[] body) throws Exception {

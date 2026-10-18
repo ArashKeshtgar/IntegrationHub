@@ -1,0 +1,25 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "timestamp": "2026-10-18T17:35:46Z",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "identifier": [{ "system": "urn:clinichub:harbourview:service-request", "value": "101" }],
+        "status": "revoked",
+        "intent": "order",
+        "code": {
+          "coding": [{ "system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin" }],
+          "text": "Hemoglobin"
+        },
+        "subject": { "identifier": { "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0001" } },
+        "note": [{ "text": "MARKER-CANCEL-REASON" }]
+      },
+      "request": {
+        "method": "PUT",
+        "url": "ServiceRequest?identifier=urn:clinichub:harbourview:service-request|101"
+      }
+    }
+  ]
+}
