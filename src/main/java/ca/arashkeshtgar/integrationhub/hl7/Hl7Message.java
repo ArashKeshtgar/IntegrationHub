@@ -91,6 +91,14 @@ public final class Hl7Message {
       return c - 1 < comps.length ? unescape(sub(comps[c - 1])) : "";
     }
 
+    /**
+     * A repetition of a text field (ST, TX, FT) as one text: these types have no components, so a
+     * component or subcomponent separator the sender did not escape is kept as data, not cut at.
+     */
+    public String textOf(String repetition) {
+      return unescape(repetition);
+    }
+
     public String unescapedField(int n) {
       return unescape(field(n));
     }

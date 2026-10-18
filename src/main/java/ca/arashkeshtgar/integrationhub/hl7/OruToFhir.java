@@ -316,10 +316,7 @@ public final class OruToFhir {
           if (text.length() > 0) {
             text.append('\n');
           }
-          text.append(
-              x.componentOf(repetition, 1).isEmpty() && repetition.contains("\\")
-                  ? repetition
-                  : unescapeWhole(x, repetition));
+          text.append(x.textOf(repetition));
         }
         return new StringType(text.toString());
       }
@@ -336,13 +333,6 @@ public final class OruToFhir {
       }
       default -> throw new Hl7Exception("unsupported OBX value type");
     }
-  }
-
-  private static String unescapeWhole(Segment x, String repetition) {
-    // ST/TX/FT: the whole repetition is text; a component separator inside it is data only if
-    // escaped, so the
-    // first component is the text.
-    return x.componentOf(repetition, 1);
   }
 
   private static String single(List<String> values, Segment x) throws Hl7Exception {
@@ -452,7 +442,7 @@ public final class OruToFhir {
         if (text.length() > 0) {
           text.append('\n');
         }
-        text.append(nte.componentOf(repetition, 1));
+        text.append(nte.textOf(repetition)); // NTE-3 is FT
       }
     }
     return text.toString();

@@ -363,6 +363,9 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 - **Preliminary and other non-final statuses are accepted and dropped**, because ClinicHub's results contract is
   final / amended / cancelled (contracts.md flow 3).
 - **Character set**: ISO-8859-1 unless MSH-18 says UTF-8.
+- **Text values (ST, TX, FT) and NTE comments are read whole**: these types have no components, so a `&` or `^` the
+  lab did not escape is kept as text. (Found after the phase: the first version cut the text at it, so
+  "Hemolyzed & lipemic" reached ClinicHub as "Hemolyzed ".)
 - The export copies results the hub **relayed**, which are LabFlow's and ClinicReport's. It does not export results that
   came in over HL7 (they would go back to where they came from).
 

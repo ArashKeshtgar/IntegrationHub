@@ -165,6 +165,18 @@ class OruToFhirTest {
   }
 
   @Test
+  void textWithSeparatorsTheSenderDidNotEscapeIsKeptWhole() throws Exception {
+    String sample =
+        Hl7Samples.load("oru-final.hl7")
+            .replace("Synthetic free text with \\T\\ ampersand", "Hemolyzed & lipemic^recollect")
+            .replace("Synthetic comment on the sodium", "Repeat & confirm^see note");
+    List<Observation> obs = of(mapper.map(Hl7Message.parse(sample)).bundle(), Observation.class);
+    assertThat(obs.get(2).getValueStringType().getValue())
+        .isEqualTo("Hemolyzed & lipemic^recollect");
+    assertThat(obs.get(1).getNoteFirstRep().getText()).isEqualTo("Repeat & confirm^see note");
+  }
+
+  @Test
   void codedObx() throws Exception {
     Observation o = of(map("oru-final.hl7").bundle(), Observation.class).get(3);
     assertThat(o.getValueCodeableConcept().getCodingFirstRep().getCode()).isEqualTo("Y");
