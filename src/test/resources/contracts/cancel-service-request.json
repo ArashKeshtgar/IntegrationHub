@@ -1,0 +1,8 @@
+{
+  "resourceType": "ServiceRequest",
+  "identifier": [{ "system": "urn:clinichub:harbourview:service-request", "value": "101" }],
+  "status": "revoked",
+  "intent": "order",
+  "subject": { "reference": "Patient/7001" },
+  "note": [{ "text": "MARKER-CANCEL-REASON" }]
+}

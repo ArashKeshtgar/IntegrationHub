@@ -97,4 +97,13 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
    audience (`allowed-audiences` empty). Put it in the route once known.
 6. Does a results token carry `clinic_slug`? Not needed: the log takes the clinic from the `basedOn` identifier.
 7. `iss` is exactly `http://localhost:5301/` (trailing slash) and the keys are at `…/.well-known/jwks`.
+8. Order tokens (phase 2): ClinicHub signs them itself with `aud` = `labflow` / `clinicreport` and scope `orders`
+   (contracts above). If a ClinicHub-signed token has no `client_id` the log shows `azp` or `sub` as the sender.
+9. `X-Finance-Key` in development: is it accepted **instead of** a token (then set
+   `HUB_ROUTE_FINANCE_API_KEY_HEADER=X-Finance-Key` for development) or besides one? Which applications send which?
+10. Finance tokens from the other applications (client credentials): `aud` = `finance`, scope `finance`, as written
+    above; the finance route requires both.
+11. Does the sender's FHIR base setting end in `/fhir`? The hub relays only `/route/{app}/fhir…`.
+12. How does the .NET client write the cancel's query (`|` raw or `%7C`; `:` raw or `%3A`)? Both are relayed; the
+    log understands both.
 

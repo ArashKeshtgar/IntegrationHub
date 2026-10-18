@@ -1,0 +1,55 @@
+{
+  "resourceType": "Bundle",
+  "id": "order-bundle-1",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:patient-1",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          { "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0001" },
+          { "system": "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-patient-hcn", "value": "HC-MARKER-123456" }
+        ],
+        "name": [{ "family": "Zzyzx", "given": ["Testpatient"] }],
+        "birthDate": "1900-01-01"
+      },
+      "request": { "method": "POST", "url": "Patient" }
+    },
+    {
+      "fullUrl": "urn:uuid:practitioner-1",
+      "resource": {
+        "resourceType": "Practitioner",
+        "identifier": [{ "system": "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-license-physician", "value": "CPSO-MARKER-000000" }],
+        "name": [{ "family": "Synthetic", "given": ["Doc"] }]
+      },
+      "request": { "method": "POST", "url": "Practitioner" }
+    },
+    {
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "identifier": [{ "system": "urn:clinichub:harbourview:service-request", "value": "101" }],
+        "status": "active",
+        "intent": "order",
+        "priority": "routine",
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "718-7" }] },
+        "subject": { "reference": "urn:uuid:patient-1" },
+        "requester": { "reference": "urn:uuid:practitioner-1" },
+        "note": [{ "text": "MARKER-NOTE-TEXT" }]
+      },
+      "request": { "method": "POST", "url": "ServiceRequest" }
+    },
+    {
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "identifier": [{ "system": "urn:clinichub:harbourview:service-request", "value": "102" }],
+        "status": "active",
+        "intent": "order",
+        "priority": "urgent",
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "2160-0" }] },
+        "subject": { "reference": "urn:uuid:patient-1" }
+      },
+      "request": { "method": "POST", "url": "ServiceRequest" }
+    }
+  ]
+}

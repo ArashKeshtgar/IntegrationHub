@@ -40,6 +40,12 @@ abstract class RelayTestBase extends PostgresTestBase {
   static final String ISSUER = "http://localhost:5301/";
   static final WireMockServer CLINICHUB =
       new WireMockServer(WireMockConfiguration.options().dynamicPort());
+  static final WireMockServer LABFLOW =
+      new WireMockServer(WireMockConfiguration.options().dynamicPort());
+  static final WireMockServer CLINICREPORT =
+      new WireMockServer(WireMockConfiguration.options().dynamicPort());
+  static final WireMockServer FINANCE =
+      new WireMockServer(WireMockConfiguration.options().dynamicPort());
   static final RSAKey KEY;
   static final RSAKey OTHER_KEY;
   static final int CLOSED_PORT;
@@ -48,6 +54,9 @@ abstract class RelayTestBase extends PostgresTestBase {
   static {
     try {
       CLINICHUB.start();
+      LABFLOW.start();
+      CLINICREPORT.start();
+      FINANCE.start();
       KEY = new RSAKeyGenerator(2048).keyID("test-key").generate();
       OTHER_KEY = new RSAKeyGenerator(2048).keyID("test-key").generate();
       try (ServerSocket socket = new ServerSocket(0)) {
@@ -64,6 +73,17 @@ abstract class RelayTestBase extends PostgresTestBase {
     registry.add("hub.auth.jwks-uri", () -> CLINICHUB.baseUrl() + "/.well-known/jwks");
     registry.add("hub.max-body-bytes", () -> "1048576");
     registry.add("hub.routes.clinichub.upstream", CLINICHUB::baseUrl);
+    registry.add("hub.routes.labflow.upstream", LABFLOW::baseUrl);
+    registry.add("hub.routes.clinicreport.upstream", CLINICREPORT::baseUrl);
+    registry.add("hub.routes.finance.upstream", FINANCE::baseUrl);
+    // Development key mode of the finance route, as a second route.
+    registry.add("hub.routes.keyed.upstream", FINANCE::baseUrl);
+    registry.add("hub.routes.keyed.allowed-audiences", () -> "finance");
+    registry.add("hub.routes.keyed.required-scopes", () -> "finance");
+    registry.add("hub.routes.keyed.allowed-paths", () -> "/api/integration/documents");
+    registry.add("hub.routes.keyed.body-format", () -> "finance-documents");
+    registry.add("hub.routes.keyed.forward-headers", () -> "X-Finance-Key");
+    registry.add("hub.routes.keyed.api-key-header", () -> "X-Finance-Key");
     // Only for the audience check.
     registry.add("hub.routes.audience.upstream", CLINICHUB::baseUrl);
     registry.add("hub.routes.audience.allowed-audiences", () -> "clinichub-results");
@@ -82,6 +102,9 @@ abstract class RelayTestBase extends PostgresTestBase {
 
   @BeforeEach
   void resetStubsAndLog() {
+    for (WireMockServer server : List.of(LABFLOW, CLINICREPORT, FINANCE)) {
+      server.resetAll();
+    }
     CLINICHUB.resetAll();
     CLINICHUB.stubFor(
         get("/.well-known/jwks").willReturn(okJson(new JWKSet(KEY.toPublicJWK()).toString())));

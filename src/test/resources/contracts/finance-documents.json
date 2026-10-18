@@ -1,0 +1,24 @@
+[
+  {
+    "sourceKey": "harbourview",
+    "externalId": "claim:1234:ready",
+    "kind": "Invoice",
+    "date": "2026-10-05",
+    "reference": "AB12-001234",
+    "party": { "type": "OHIP", "code": "OHIP" },
+    "lines": [
+      { "category": "OHIP.Professional", "amount": 91.17, "taxCode": "EXEMPT", "providerCode": "123456", "department": "Clinic" }
+    ]
+  },
+  {
+    "sourceKey": "harbourview",
+    "externalId": "claim:1235:reversal",
+    "kind": "Reversal",
+    "date": "2026-10-06",
+    "reference": "AB12-001235",
+    "party": { "type": "OHIP", "code": "OHIP" },
+    "lines": [
+      { "category": "OHIP.Professional", "amount": -12.34, "taxCode": "EXEMPT", "providerCode": "123456", "department": "Clinic" }
+    ]
+  }
+]

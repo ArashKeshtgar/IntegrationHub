@@ -50,7 +50,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 |---|---|---|
 | 0 | Skeleton: build, health, CI, Docker, local compose | **Done** |
 | 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done** in the hub; the two sender settings below are still to be changed |
-| 2 | Orders, cancels and financial documents through the hub | Not started |
+| 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | Not started |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | Not started |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | Not started |
@@ -127,9 +127,7 @@ through the hub, and the log shows both.
 
 - `hub.payloads.store` (encrypted bodies, access log): the log has no body column at all for now.
 - A `503` test for unreachable JWKS (the code path exists).
-- Anything other than `POST` and `/fhir`: phase 2. Note for it: Tomcat rejects a raw `|` in a query string, and the
-  cancel is `?identifier=urn:…|42`; set `server.tomcat.relaxed-query-chars` (and test with the .NET client's encoding)
-  when adding `PUT`.
+- Anything other than `POST` and `/fhir`: phase 2 (done).
 - Not seen working with the real LabFlow, ClinicReport and ClinicHub (they are not available to this session).
 
 **Other repositories — to do locally, not done:**
@@ -159,6 +157,47 @@ through the hub, and the log shows both.
 
 **Done when:** an order placed in ClinicHub reaches LabFlow and ClinicReport, a cancel refused with `409` shows the
 lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through the hub.
+
+**Built (this repository):**
+
+- Routes `labflow` → `:5180` and `clinicreport` → `:5290` (audience = the app, scope `orders`, `POST` and `PUT` on
+  `/fhir`), `finance` → `:5400` (audience and scope `finance`, `POST` on `/api/integration/documents`; `X-Finance-Key`
+  is passed through). Each route now says which paths, methods and extra headers it relays and how its body is
+  summarised (`allowed-paths`, `allowed-methods`, `forward-headers`, `body-format`). The order of checks is: route and
+  path (`404`), method (`405` with `Allow`), token (`401`), then the body.
+- Cancel: `PUT /route/{app}/fhir/ServiceRequest?identifier=…`. The query string goes to the app as sent. Tomcat is set
+  to accept the characters it normally refuses (`server.tomcat.relaxed-query-chars`), and the relay percent-encodes
+  only what a URI cannot carry (a raw `|` becomes `%7C`; `%XX` is never touched), because the JDK client cannot write
+  those. The app decodes both to the same value. A `409` comes back with the app's own body and is asked for once.
+- Log: an order Bundle's `ServiceRequest` identifiers and statuses (not the Patient or Practitioner: types and counts
+  only); a cancel's identifier from the query; for finance each document's `sourceKey`, `externalId` and `kind`
+  (also as identifiers `urn:integrationhub:finance:{sourceKey}` → `externalId`, so they can be searched). Amounts,
+  parties, references, lines, names, health cards, notes: not read, not stored (tests check the database and the
+  application log for markers planted in every sample).
+- `X-Finance-Key`: `hub.routes.finance.api-key-header` (env `HUB_ROUTE_FINANCE_API_KEY_HEADER`), empty by default. When
+  set, a call with that header and **no** `Authorization` is passed to FinancePowerApp unvalidated (it checks the key);
+  a call that has a token is always validated. Meant for development only.
+- Contract tests with synthetic samples in `src/test/resources/contracts/` (order Bundle and its transaction-response,
+  a cancel and the lab's `409`, finance documents) — 77 tests in all.
+
+**Not built / not known:**
+
+- Whether FinancePowerApp accepts `X-Finance-Key` **instead of** a token or only besides one (contracts.md, question 9).
+  Until known the key-only mode is off.
+- The order's transaction-response is not read, so the ids ClinicHub stores are not in the log.
+- `Expect: 100-continue`, `HEAD`, `OPTIONS`: not relayed.
+- Not seen working with the real ClinicHub, LabFlow, ClinicReport, PharmaFlow and FinancePowerApp.
+
+**Other repositories — to do locally, not done:**
+
+1. ClinicHub: `Integrations:LabFlow:FhirBaseUrl`, `Integrations:ClinicReport:FhirBaseUrl` → `http://localhost:5700/route/labflow/fhir`
+   and `…/route/clinicreport/fhir` **if the setting holds the full FHIR base (ending in `/fhir`)**, or without `/fhir` if
+   ClinicHub appends it; the hub only relays paths that start with `/fhir`. `Integrations:Finance:BaseUrl` →
+   `http://localhost:5700/route/finance`. Check how ClinicHub builds the cancel URL from the same setting.
+2. LabFlow, ClinicReport, PharmaFlow: their finance base URL → `http://localhost:5700/route/finance`.
+3. In each a development profile `via-hub` (or the equivalent), so the direct setup stays the default; write in the
+   README how to switch back.
+4. Confirm questions 8–12 in [contracts.md](contracts.md#open-questions-for-the-hub) with real tokens and requests.
 
 ### Phase 3 — Event feed, metrics, search
 

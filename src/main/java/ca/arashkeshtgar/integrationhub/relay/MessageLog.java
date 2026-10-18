@@ -29,7 +29,7 @@ public class MessageLog {
       Long requestSize,
       String requestSha256,
       String bundleId,
-      BundleSummary summary,
+      BodySummary summary,
       Integer upstreamStatus,
       int responseStatus,
       long latencyMs,
@@ -83,7 +83,7 @@ public class MessageLog {
         e.error());
     if (e.summary() != null && !e.summary().identifiers().isEmpty()) {
       List<Object[]> rows = new ArrayList<>();
-      for (BundleSummary.Identifier id : e.summary().identifiers()) {
+      for (BodySummary.Identifier id : e.summary().identifiers()) {
         rows.add(new Object[] {e.id(), id.system(), id.value()});
       }
       jdbc.batchUpdate(

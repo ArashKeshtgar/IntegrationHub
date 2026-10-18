@@ -1,5 +1,9 @@
 server:
   port: 5700
+  tomcat:
+    # The cancel is PUT .../ServiceRequest?identifier=system|42. Tomcat refuses a raw | (and these)
+    # in a query by default; the relay percent-encodes them when it forwards.
+    relaxed-query-chars: '|,{,},[,],^,<,>,",`,\'
 
 spring:
   application:
@@ -39,3 +43,25 @@ hub:
       timeout: 30s
       connect-timeout: 5s
       required-scopes: [results]
+    # Orders and cancels from ClinicHub: /route/labflow/fhir
+    labflow:
+      upstream: ${HUB_ROUTE_LABFLOW_UPSTREAM:http://localhost:5180}
+      allowed-audiences: [labflow]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
+    clinicreport:
+      upstream: ${HUB_ROUTE_CLINICREPORT_UPSTREAM:http://localhost:5290}
+      allowed-audiences: [clinicreport]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
+    # Financial documents from every application: /route/finance/api/integration/documents
+    finance:
+      upstream: ${HUB_ROUTE_FINANCE_UPSTREAM:http://localhost:5400}
+      allowed-audiences: [finance]
+      required-scopes: [finance]
+      allowed-paths: [/api/integration/documents]
+      body-format: finance-documents
+      forward-headers: [X-Finance-Key]
+      # Development only: set to X-Finance-Key to let a call with that header and no token through
+      # (FinancePowerApp then checks the key). Empty = a token is always required.
+      api-key-header: ${HUB_ROUTE_FINANCE_API_KEY_HEADER:}

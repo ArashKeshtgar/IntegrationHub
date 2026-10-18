@@ -1,0 +1,10 @@
+{
+  "resourceType": "OperationOutcome",
+  "issue": [
+    {
+      "severity": "error",
+      "code": "conflict",
+      "details": { "text": "Results are already entered; the order cannot be cancelled. (lab message)" }
+    }
+  ]
+}

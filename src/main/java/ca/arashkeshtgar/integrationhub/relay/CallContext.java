@@ -15,7 +15,7 @@ final class CallContext {
   private String senderClientId;
   private Long requestSize;
   private String sha256;
-  private BundleSummary summary;
+  private BodySummary summary;
 
   CallContext(UUID id, String route, HttpServletRequest request, String path) {
     this.id = id;
@@ -34,7 +34,7 @@ final class CallContext {
     this.senderClientId = clientId;
   }
 
-  void body(byte[] body, String sha256, BundleSummary summary) {
+  void body(byte[] body, String sha256, BodySummary summary) {
     this.requestSize = (long) body.length;
     this.sha256 = sha256;
     this.summary = summary;
