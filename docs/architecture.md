@@ -454,8 +454,9 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
    (where it signs the one for LabFlow); (b) send the merge Bundle (flow 6) to each app that received something for the
    merged record, in the transaction of the merge or from its outbox, through the hub route; (c) put `meta.security` on
    an order or prescription a consent directive covers, and decide which directive is which code (question 23);
-   (d) **prescribing**, which does not exist: drugs (DIN), directions, quantity, repeats, a prescription that is signed,
-   its Bundle, its cancel. That is a module of its own, not a change.
+   (d) **prescribing: done in ClinicHub `701de46`** (prescribing at a visit, the Bundle and cancel of flow 5, the
+   token with `aud` `pharmaflow` and scope `prescriptions`, so (a) is done too); not yet seen through the hub in a real
+   run.
 2. **PharmaFlow:** (a) an intake for the e-prescription Bundle into reception (its README lists it as open), idempotent
    on the prescription identifier; (b) sign-in through ClinicHub and a check of the service token (`aud`, scope); (c) a
    cancel that answers `409` once dispensing has started; (d) read the merge Bundle.

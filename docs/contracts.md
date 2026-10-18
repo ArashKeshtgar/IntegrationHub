@@ -67,7 +67,7 @@ Senders' outboxes: LabFlow `lab.OutboundMessage` (database/051), ClinicReport `R
 Kinds: Invoice, Receipt, Adjustment, Bill, Payment, Usage, Reversal. `externalId` is idempotent per app. **No
 health information** in these documents. ClinicHub config: `Integrations:Finance:BaseUrl`.
 
-### 5. Electronic prescriptions — ClinicHub → PharmaFlow (phase 5; the hub is ready, nothing sends it yet)
+### 5. Electronic prescriptions — ClinicHub → PharmaFlow (phase 5; ClinicHub sends it since `701de46`, PharmaFlow does not receive it yet)
 `POST {pharmaflow}/fhir`, transaction Bundle, through the hub route `pharmaflow` (`/route/pharmaflow/fhir`). ClinicHub
 signs the token itself: `aud` `pharmaflow`, scope `prescriptions`, `clinic_slug`. The Bundle is built like an order's
 (flow 1): a `Patient` (MRN `urn:clinichub:{clinic}:mrn`, health card, name, birth date, as in an order), a
@@ -76,12 +76,14 @@ signs the token itself: `aud` `pharmaflow`, scope `prescriptions`, `clinic_slug`
 | Field | Content |
 |---|---|
 | `identifier` | `urn:clinichub:{clinic}:prescription` \| `{id}`. A Bundle sent again is the same prescription: PharmaFlow must not enter it twice |
+| `groupIdentifier` | `urn:clinichub:{clinic}:prescription-group` \| `G{n}`: the drugs written together; also the Bundle's `identifier` |
 | `status`, `intent` | `active`, `order` |
 | `medicationCodeableConcept.coding` | the drug as a DIN: system `http://hl7.org/fhir/NamingSystem/ca-hc-din` (see open question 21) |
 | `subject`, `requester` | the Patient and Practitioner of the Bundle |
 | `authoredOn` | the date written |
 | `dosageInstruction[0].text` | the directions (sig) |
-| `dispenseRequest` | `quantity.value`, `numberOfRepeatsAllowed` |
+| `dispenseRequest` | `quantity` (`value`, `unit`: capsule, tablet, inhaler, pen, gram), `numberOfRepeatsAllowed` (0 to 11), `expectedSupplyDuration` in days when given |
+| `substitution.allowedBoolean` | `false` when the prescriber wrote *no substitution* |
 | `note` | free text for the pharmacist, if any |
 
 `200` with a `transaction-response` (the ids PharmaFlow made, as for an order) = received into reception as an
