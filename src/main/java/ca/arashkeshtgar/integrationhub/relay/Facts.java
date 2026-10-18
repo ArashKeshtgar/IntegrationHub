@@ -11,7 +11,8 @@ public record Facts(
     List<Order> orders,
     List<Report> reports,
     List<FinanceDocument> documents,
-    List<BodySummary.Identifier> patientIdentifiers) {
+    List<BodySummary.Identifier> patientIdentifiers,
+    List<PatientMerge> merges) {
 
   public record Order(
       BodySummary.Identifier identifier,
@@ -25,13 +26,19 @@ public record Facts(
 
   public record FinanceDocument(String sourceKey, String externalId, String kind) {}
 
+  /**
+   * A Patient marked {@code replaced-by} another: both MRNs are ClinicHub's own, in the same
+   * identifier system (so the same clinic). In memory for the length of one call, like the rest.
+   */
+  public record PatientMerge(String system, String mergedMrn, String survivorMrn) {}
+
   public static Facts empty() {
-    return new Facts(List.of(), List.of(), List.of(), List.of());
+    return new Facts(List.of(), List.of(), List.of(), List.of(), List.of());
   }
 
   @Override
   public String toString() {
-    return "Facts[orders=%d, reports=%d, documents=%d]"
-        .formatted(orders.size(), reports.size(), documents.size());
+    return "Facts[orders=%d, reports=%d, documents=%d, merges=%d]"
+        .formatted(orders.size(), reports.size(), documents.size(), merges.size());
   }
 }

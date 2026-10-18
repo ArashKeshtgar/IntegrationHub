@@ -100,6 +100,12 @@ hub:
       allowed-audiences: [clinicreport]
       required-scopes: [orders]
       allowed-methods: [POST, PUT]
+    # Electronic prescriptions and patient merges from ClinicHub: /route/pharmaflow/fhir
+    pharmaflow:
+      upstream: ${HUB_ROUTE_PHARMAFLOW_UPSTREAM:http://localhost:5500}
+      allowed-audiences: [pharmaflow]
+      required-scopes: [prescriptions]
+      allowed-methods: [POST]
     # Financial documents from every application: /route/finance/api/integration/documents
     finance:
       upstream: ${HUB_ROUTE_FINANCE_UPSTREAM:http://localhost:5400}

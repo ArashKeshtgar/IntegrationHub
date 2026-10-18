@@ -46,6 +46,8 @@ abstract class RelayTestBase extends PostgresTestBase {
       new WireMockServer(WireMockConfiguration.options().dynamicPort());
   static final WireMockServer FINANCE =
       new WireMockServer(WireMockConfiguration.options().dynamicPort());
+  static final WireMockServer PHARMAFLOW =
+      new WireMockServer(WireMockConfiguration.options().dynamicPort());
   static final RSAKey KEY;
   static final RSAKey OTHER_KEY;
   static final int CLOSED_PORT;
@@ -57,6 +59,7 @@ abstract class RelayTestBase extends PostgresTestBase {
       LABFLOW.start();
       CLINICREPORT.start();
       FINANCE.start();
+      PHARMAFLOW.start();
       KEY = new RSAKeyGenerator(2048).keyID("test-key").generate();
       OTHER_KEY = new RSAKeyGenerator(2048).keyID("test-key").generate();
       try (ServerSocket socket = new ServerSocket(0)) {
@@ -76,6 +79,7 @@ abstract class RelayTestBase extends PostgresTestBase {
     registry.add("hub.routes.labflow.upstream", LABFLOW::baseUrl);
     registry.add("hub.routes.clinicreport.upstream", CLINICREPORT::baseUrl);
     registry.add("hub.routes.finance.upstream", FINANCE::baseUrl);
+    registry.add("hub.routes.pharmaflow.upstream", PHARMAFLOW::baseUrl);
     // Development key mode of the finance route, as a second route.
     registry.add("hub.routes.keyed.upstream", FINANCE::baseUrl);
     registry.add("hub.routes.keyed.allowed-audiences", () -> "finance");
@@ -102,7 +106,7 @@ abstract class RelayTestBase extends PostgresTestBase {
 
   @BeforeEach
   void resetStubsAndLog() {
-    for (WireMockServer server : List.of(LABFLOW, CLINICREPORT, FINANCE)) {
+    for (WireMockServer server : List.of(LABFLOW, CLINICREPORT, FINANCE, PHARMAFLOW)) {
       server.resetAll();
     }
     CLINICHUB.resetAll();

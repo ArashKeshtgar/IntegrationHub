@@ -24,7 +24,11 @@ import org.springframework.stereotype.Component;
  *   <li>{@code finance.document}: each financial document of a call answered 2xx.
  * </ul>
  *
- * Event ids are derived from the content, so the same call sent twice is one event.
+ * Prescriptions and patient merges make no event (a drug says too much about a patient). A merge
+ * answered 2xx moves the pseudonym remembered with the merged patient's orders to the survivor's,
+ * so later results of those orders carry the survivor's pseudonym.
+ *
+ * <p>Event ids are derived from the content, so the same call sent twice is one event.
  */
 @Component
 public class EventFactory {
@@ -42,8 +46,19 @@ public class EventFactory {
       BodyFormat format,
       Integer upstreamStatus) {}
 
-  public record Result(List<ClinicalEvent> events, List<OrderLinks.Link> links) {
-    public static final Result NONE = new Result(List.of(), List.of());
+  /**
+   * A patient merged into another: the pseudonym of the merged record is replaced by the
+   * survivor's.
+   */
+  public record PseudonymMove(String clinicSlug, String from, String to) {}
+
+  public record Result(
+      List<ClinicalEvent> events, List<OrderLinks.Link> links, List<PseudonymMove> moves) {
+    public static final Result NONE = new Result(List.of(), List.of(), List.of());
+
+    public Result(List<ClinicalEvent> events, List<OrderLinks.Link> links) {
+      this(events, links, List.of());
+    }
   }
 
   private final EventsProperties properties;
@@ -64,6 +79,7 @@ public class EventFactory {
     boolean ok = call.upstreamStatus() >= 200 && call.upstreamStatus() < 300;
     List<ClinicalEvent> events = new ArrayList<>();
     List<OrderLinks.Link> newLinks = new ArrayList<>();
+    List<PseudonymMove> moves = new ArrayList<>();
 
     if (call.format() == BodyFormat.FINANCE_DOCUMENTS) {
       if (ok && "POST".equals(call.method())) {
@@ -86,7 +102,45 @@ public class EventFactory {
           call.summary().requestStatuses().stream().findFirst().orElse(null),
           events);
     }
-    return events.isEmpty() && newLinks.isEmpty() ? Result.NONE : new Result(events, newLinks);
+    if (ok && "POST".equals(call.method())) {
+      merges(facts, moves);
+    }
+    return events.isEmpty() && newLinks.isEmpty() && moves.isEmpty()
+        ? Result.NONE
+        : new Result(events, newLinks, moves);
+  }
+
+  /** Patient merges: the clinic comes from the MRN system, the pseudonyms from the two MRNs. */
+  private void merges(Facts facts, List<PseudonymMove> moves) {
+    for (Facts.PatientMerge merge : facts.merges()) {
+      Optional<String> clinic = clinicOfMrnSystem(merge.system());
+      if (clinic.isEmpty() || merge.mergedMrn().equals(merge.survivorMrn())) {
+        continue;
+      }
+      moves.add(
+          new PseudonymMove(
+              clinic.get(),
+              pseudonymizer.of(clinic.get(), merge.mergedMrn()),
+              pseudonymizer.of(clinic.get(), merge.survivorMrn())));
+    }
+  }
+
+  /** The clinic slug in an MRN system such as {@code urn:clinichub:harbourview:mrn}. */
+  private Optional<String> clinicOfMrnSystem(String system) {
+    String template = properties.mrnSystem();
+    int at = template.indexOf("{clinic}");
+    if (at < 0) {
+      return Optional.empty();
+    }
+    String prefix = template.substring(0, at);
+    String suffix = template.substring(at + "{clinic}".length());
+    if (!system.startsWith(prefix)
+        || !system.endsWith(suffix)
+        || system.length() <= prefix.length() + suffix.length()) {
+      return Optional.empty();
+    }
+    String clinic = system.substring(prefix.length(), system.length() - suffix.length());
+    return clinic.matches("[^:|]+") ? Optional.of(clinic) : Optional.empty();
   }
 
   private void orders(

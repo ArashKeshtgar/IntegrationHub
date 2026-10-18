@@ -48,6 +48,18 @@ public class OrderLinks {
         .findFirst();
   }
 
+  /**
+   * A patient merged into another: orders remembered with the merged record's pseudonym now carry
+   * the survivor's. Inside the transaction that writes the log row.
+   */
+  public int move(String clinicSlug, String from, String to) {
+    return jdbc.update(
+        "update order_link set patient_pseudonym = ? where clinic_slug = ? and patient_pseudonym = ?",
+        to,
+        clinicSlug,
+        from);
+  }
+
   /** Call inside the transaction that writes the log row. A resent order keeps what it had. */
   public void upsert(Link link) {
     jdbc.update(

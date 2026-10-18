@@ -134,6 +134,9 @@ public class MessageLog {
     for (OrderLinks.Link link : events.links()) {
       links.upsert(link);
     }
+    for (EventFactory.PseudonymMove move : events.moves()) {
+      links.move(move.clinicSlug(), move.from(), move.to());
+    }
     for (var event : events.events()) {
       outbox.add(e.id(), event);
     }

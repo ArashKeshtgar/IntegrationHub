@@ -276,6 +276,71 @@ class EventsTest extends RelayTestBase {
     }
   }
 
+  // ---- merges ---------------------------------------------------------------------------------
+
+  @Test
+  void aMergeMovesTheMergedPatientsOrdersToTheSurvivorsPseudonym() throws Exception {
+    placeOrders("clinicreport");
+    receive(4);
+    CLINICREPORT.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));
+
+    // ClinicHub merges MRN-MARKER-0001 into MRN-MARKER-0002 and tells the app that had the orders.
+    postBundle(
+        "clinicreport",
+        ContractFlowsTest.ordersToken("clinicreport"),
+        read("patient-merge-bundle.json"));
+    receive(0); // a merge makes no event
+
+    CLINICHUB.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));
+    postBundle("clinichub", validToken(), read("result-bundle-for-orders.json"));
+
+    List<Message> messages = receive(2);
+    String survivor = hmac("harbourview", "MRN-MARKER-0002");
+    assertThat(
+            only(messages, "result.final", "service-request|101").get("patientPseudonym").asText())
+        .isEqualTo(survivor);
+    assertThat(
+            only(messages, "result.amended", "service-request|102")
+                .get("patientPseudonym")
+                .asText())
+        .isEqualTo(survivor);
+    assertThat(survivor).isNotEqualTo(hmac("harbourview", "MRN-MARKER-0001"));
+  }
+
+  @Test
+  void aMergeTheAppDidNotAnswerChangesNothing() throws Exception {
+    placeOrders("clinicreport");
+    receive(4);
+    CLINICREPORT.stubFor(post("/fhir").willReturn(aResponse().withStatus(500).withBody("{}")));
+
+    postBundle(
+        "clinicreport",
+        ContractFlowsTest.ordersToken("clinicreport"),
+        read("patient-merge-bundle.json"));
+
+    CLINICHUB.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));
+    postBundle("clinichub", validToken(), read("result-bundle-for-orders.json"));
+    assertThat(
+            only(receive(2), "result.final", "service-request|101")
+                .get("patientPseudonym")
+                .asText())
+        .isEqualTo(hmac("harbourview", "MRN-MARKER-0001"));
+  }
+
+  @Test
+  void aMergeOfSomeoneWhoHasNoOrdersHereIsHarmless() throws Exception {
+    CLINICREPORT.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));
+
+    var response =
+        postBundle(
+            "clinicreport",
+            ContractFlowsTest.ordersToken("clinicreport"),
+            read("patient-merge-bundle.json"));
+
+    assertThat(response.statusCode()).isEqualTo(200);
+    receive(0);
+  }
+
   @Test
   void aResultForAnOrderTheHubNeverSawHasNoPseudonym() throws Exception {
     CLINICHUB.stubFor(post("/fhir").willReturn(aResponse().withStatus(200).withBody("{}")));

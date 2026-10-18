@@ -1,0 +1,20 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [{ "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0001" }],
+        "active": false,
+        "link": [
+          {
+            "other": { "identifier": { "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0002" } },
+            "type": "replaced-by"
+          }
+        ]
+      },
+      "request": { "method": "PUT", "url": "Patient?identifier=urn:clinichub:harbourview:mrn|MRN-MARKER-0001" }
+    }
+  ]
+}

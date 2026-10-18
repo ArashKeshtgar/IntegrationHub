@@ -360,6 +360,7 @@ public class RelayController {
         events,
         hl7Copy(call, upstreamStatus));
     record(call.route(), upstreamStatus, responseStatus, ms);
+    countLabels(call);
     log.info(
         "relay route={} status={} upstream={} ms={} note={}",
         call.route(),
@@ -385,6 +386,23 @@ public class RelayController {
       return null;
     }
     return () -> hl7Outbound.enqueue(call.id(), call.body());
+  }
+
+  /**
+   * Orders, prescriptions and results that carry a confidentiality label (R, V, ...): counted per
+   * route and code, so the privacy officer can see that restricted items pass through the hub.
+   */
+  private void countLabels(CallContext call) {
+    if (call.summary() == null
+        || !(call.summary().extra().get("securityLabels") instanceof List<?> labels)) {
+      return;
+    }
+    String route = properties.routes().containsKey(call.route()) ? call.route() : "unknown";
+    for (Object label : labels) {
+      meters
+          .counter("hub.consent.labelled", "route", route, "code", String.valueOf(label))
+          .increment();
+    }
   }
 
   /** Counters and a latency histogram. The route tag is only ever a configured name. */

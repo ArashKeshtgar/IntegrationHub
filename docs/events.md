@@ -76,6 +76,12 @@ makes it once. Calls refused by the hub (no token, wrong scope) make none. A res
 `order.placed` and `order.accepted` differ only when the application refuses an order (`4xx`, `5xx`): then there is
 a `placed` and no `accepted` (a `5xx` is retried by the sender and may become `accepted` later).
 
+**Not in the feed (phase 5):** prescriptions (a drug says too much about a patient, even without a name) and patient
+merges. A merge answered `2xx` does change what the hub remembers: the pseudonym of the merged patient's orders becomes
+the survivor's, so **results that arrive after the merge** carry the survivor's pseudonym. Events already published keep
+the pseudonym they had, and nothing in the feed says that two pseudonyms are one person: a consumer that counts
+patients will count a merged patient twice for what happened before the merge.
+
 ## How the pseudonym reaches results
 
 A result or a cancel does not carry the patient. When an order is relayed the hub remembers, per

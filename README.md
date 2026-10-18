@@ -28,7 +28,7 @@ Image: `docker build -t integrationhub .`
 ## Using the relay
 
 A sender posts to `http://localhost:5700/route/{route}/fhir` instead of the application directly, with the token it
-already has. Routes are in `hub.routes` (`application.yml`): `clinichub` (results), `labflow` and `clinicreport` (orders, cancels), `finance` (financial documents); each lists the paths and methods it relays. To undo, point the sender back
+already has. Routes are in `hub.routes` (`application.yml`): `clinichub` (results), `labflow` and `clinicreport` (orders, cancels), `finance` (financial documents), `pharmaflow` (e-prescriptions and their cancel; patient merges go through the app routes); each lists the paths and methods it relays. To undo, point the sender back
 at the application. Every call, including refusals, is a row in `message` (metadata only, never the body).
 
 ## Events, metrics, search
@@ -56,11 +56,11 @@ The listener has no TLS: keep it on a private network. Details and what is not b
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
-- [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
-- [x] Phase 2 — orders, cancels, financial documents — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
+- [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done and seen with LabFlow (`ClinicHub:ResultsUrl`); ClinicReport's setting is still to be changed, see the phase in docs/architecture.md
+- [x] Phase 2 — orders, cancels, financial documents — hub done and seen with ClinicHub and LabFlow (`Integrations:LabFlow:FhirBaseUrl`); the other senders' settings are still to be changed, see the phase in docs/architecture.md
 - [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
 - [x] Phase 4 — HL7 v2 in (external lab ORU over MLLP) and out (OLIS simulation) — hub done; no TLS on the listener, not tried with a real lab or OLIS, ClinicHub needs the `integrationhub` client, see the phase in docs/architecture.md
-- [ ] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags
+- [x] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags — hub done (contracts, route `pharmaflow`, log, pseudonym on merges); nothing in ClinicHub, PharmaFlow, LabFlow or ClinicReport sends or reads them yet, see the phase in docs/architecture.md
 - [ ] Phase 6 — admin web with ClinicHub sign-in, replay, alerts
 
 All data in tests and samples is synthetic.

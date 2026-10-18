@@ -1,0 +1,20 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "identifier": [{ "system": "urn:clinichub:harbourview:prescription", "value": "501" }],
+        "status": "cancelled",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [{ "system": "http://hl7.org/fhir/NamingSystem/ca-hc-din", "code": "DIN-MARKER-99999999" }]
+        },
+        "subject": { "identifier": { "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0001" } },
+        "note": [{ "text": "MARKER-CANCEL-REASON" }]
+      },
+      "request": { "method": "PUT", "url": "MedicationRequest?identifier=urn:clinichub:harbourview:prescription|501" }
+    }
+  ]
+}

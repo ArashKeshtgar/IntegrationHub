@@ -20,8 +20,10 @@ import java.util.regex.Pattern;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.DiagnosticReport;
+import org.hl7.fhir.r4.model.MedicationRequest;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Reference;
+import org.hl7.fhir.r4.model.Resource;
 import org.hl7.fhir.r4.model.ServiceRequest;
 
 /**
@@ -49,7 +51,15 @@ public record BodySummary(
   private static final int MAX_LENGTH = 200;
   private static final Pattern CLINICHUB_SERVICE_REQUEST =
       Pattern.compile("^urn:clinichub:([^:|]+):service-request$");
+  private static final Pattern PRESCRIPTION =
+      Pattern.compile("^urn:clinichub:([^:|]+):prescription$");
   private static final ObjectMapper JSON = new ObjectMapper();
+
+  /** HL7 v3 Confidentiality: the system of the label a restricted order or result carries. */
+  public static final String CONFIDENTIALITY_SYSTEM =
+      "http://terminology.hl7.org/CodeSystem/v3-Confidentiality";
+
+  private static final Pattern LABEL_CODE = Pattern.compile("^[A-Za-z]{1,3}$");
 
   /** Finance documents are keyed per sending business: system = this prefix + sourceKey. */
   public static final String FINANCE_SYSTEM_PREFIX = "urn:integrationhub:finance:";
@@ -92,8 +102,8 @@ public record BodySummary(
           c.requestStatuses,
           clinic(c.identifiers),
           c.identifiers,
-          Map.of(),
-          new Facts(c.orders, c.reports, List.of(), c.patientIdentifiers));
+          c.extra(),
+          new Facts(c.orders, c.reports, List.of(), c.patientIdentifiers, c.merges));
     } catch (RuntimeException e) {
       // Not logged with its message: it can quote the body.
       return unparsed();
@@ -109,6 +119,23 @@ public record BodySummary(
     final List<Facts.Order> orders = new ArrayList<>();
     final List<Facts.Report> reports = new ArrayList<>();
     final List<Identifier> patientIdentifiers = new ArrayList<>();
+    final Set<String> prescriptionStatuses = new TreeSet<>();
+    final Set<String> labels = new TreeSet<>();
+    final List<Facts.PatientMerge> merges = new ArrayList<>();
+
+    /**
+     * What goes into the log besides the counts: statuses of prescriptions, confidentiality labels.
+     */
+    Map<String, Object> extra() {
+      Map<String, Object> extra = new TreeMap<>();
+      if (!prescriptionStatuses.isEmpty()) {
+        extra.put("prescriptionStatuses", List.copyOf(prescriptionStatuses));
+      }
+      if (!labels.isEmpty()) {
+        extra.put("securityLabels", List.copyOf(labels));
+      }
+      return extra;
+    }
   }
 
   /**
@@ -171,7 +198,7 @@ public record BodySummary(
           null,
           identifiers,
           extra,
-          new Facts(List.of(), List.of(), facts, List.of()));
+          new Facts(List.of(), List.of(), facts, List.of(), List.of()));
     } catch (Exception e) {
       return unparsed();
     }
@@ -240,7 +267,11 @@ public record BodySummary(
 
   private static String clinic(Set<Identifier> identifiers) {
     return identifiers.stream()
-        .map(i -> CLINICHUB_SERVICE_REQUEST.matcher(i.system()))
+        .flatMap(
+            i ->
+                java.util.stream.Stream.of(
+                    CLINICHUB_SERVICE_REQUEST.matcher(i.system()),
+                    PRESCRIPTION.matcher(i.system())))
         .filter(Matcher::matches)
         .map(m -> m.group(1))
         .findFirst()
@@ -249,6 +280,16 @@ public record BodySummary(
 
   private static void count(IBaseResource resource, Collector c) {
     c.types.merge(resource.fhirType(), 1, Integer::sum);
+    if (resource instanceof Resource r) {
+      // A confidentiality label (R, V, ...) on an order, a prescription or a result: the code only.
+      // Anything
+      // that is not a short code is counted as "other", so free text never reaches the log.
+      for (org.hl7.fhir.r4.model.Coding label : r.getMeta().getSecurity()) {
+        if (CONFIDENTIALITY_SYSTEM.equals(label.getSystem()) && label.hasCode()) {
+          c.labels.add(LABEL_CODE.matcher(label.getCode()).matches() ? label.getCode() : "other");
+        }
+      }
+    }
     if (resource instanceof DiagnosticReport report) {
       if (report.hasStatus()) {
         c.reportStatuses.add(report.getStatus().toCode());
@@ -291,11 +332,42 @@ public record BodySummary(
                   order.hasStatus() ? order.getStatus().toCode() : null));
         }
       }
+    } else if (resource instanceof MedicationRequest rx) {
+      // The prescription's id and status only: never the drug, the directions or the quantity.
+      if (rx.hasStatus()) {
+        c.prescriptionStatuses.add(rx.getStatus().toCode());
+      }
+      for (org.hl7.fhir.r4.model.Identifier id : rx.getIdentifier()) {
+        if (id.hasSystem()
+            && id.hasValue()
+            && PRESCRIPTION.matcher(id.getSystem()).matches()
+            && c.identifiers.size() < MAX_IDENTIFIERS) {
+          add(c.identifiers, new Identifier(id.getSystem(), id.getValue()));
+        }
+      }
     } else if (resource instanceof Patient patient) {
       // Only ClinicHub's own identifiers (the MRN); the health card number is never kept.
       for (org.hl7.fhir.r4.model.Identifier id : patient.getIdentifier()) {
         if (id.hasSystem() && id.hasValue() && id.getSystem().startsWith("urn:clinichub:")) {
           c.patientIdentifiers.add(new Identifier(id.getSystem(), id.getValue()));
+        }
+      }
+      // A merge: this record is replaced by another, named by its MRN in the same system.
+      for (Patient.PatientLinkComponent link : patient.getLink()) {
+        if (link.getType() != Patient.LinkType.REPLACEDBY || !link.getOther().hasIdentifier()) {
+          continue;
+        }
+        org.hl7.fhir.r4.model.Identifier survivor = link.getOther().getIdentifier();
+        for (org.hl7.fhir.r4.model.Identifier id : patient.getIdentifier()) {
+          if (id.hasSystem()
+              && id.hasValue()
+              && id.getSystem().startsWith("urn:clinichub:")
+              && id.getSystem().equals(survivor.getSystem())
+              && survivor.hasValue()
+              && c.merges.size() < MAX_IDENTIFIERS) {
+            c.merges.add(
+                new Facts.PatientMerge(id.getSystem(), id.getValue(), survivor.getValue()));
+          }
         }
       }
     }

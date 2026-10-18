@@ -53,7 +53,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done** in the hub; not yet tried with the real applications |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
-| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | Not started |
+| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); nothing in the other applications sends or receives them yet |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | Not started |
 
 Each phase ends with its tests green in CI, this table updated, and the README's status list updated. Changes needed
@@ -417,6 +417,52 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
    received orders for the merged record.
 3. **Consent directives:** mark orders of a patient with a directive (`meta.security` with a confidentiality code), so
    LabFlow and ClinicReport can restrict who sees the result.
+
+**Built (the hub's part):**
+
+- **Contracts** 5 to 7 in [contracts.md](contracts.md) (open questions 20 to 24): the e-prescription Bundle and its
+  cancel, the patient-merge Bundle, the confidentiality label. They mirror what ClinicHub already sends for orders (a
+  transaction Bundle POSTed to `/fhir`, a cancel as the resource again with a conditional PUT as its `request`).
+- **Route `pharmaflow`** (`HUB_ROUTE_PHARMAFLOW_UPSTREAM`, default `http://localhost:5500`): POST only, `aud` `pharmaflow`,
+  scope `prescriptions`, relayed unchanged with the sender's token, status and body passed back (a `409` on a cancel is an
+  answer). The merge Bundle goes through the existing `labflow` and `clinicreport` routes and this one.
+- **Log:** a prescription is its id (`urn:clinichub:{clinic}:prescription|{id}`, searchable and giving the clinic) and
+  its status; never the drug, directions, quantity, doctor or patient (a test with markers over the log tables and the
+  application log). Confidentiality codes are logged as short codes (anything else as `other`) and counted:
+  `hub.consent.labelled{route,code}`.
+- **Merges:** a Patient `replaced-by` another, answered `2xx` on a POST, moves the pseudonym the hub remembers with the
+  merged patient's orders to the survivor's (`order_link`), so later results carry it. Nothing happens when the app did not
+  answer or answered an error (the sender retries), for a merge of someone with no orders here, or for an MRN system the
+  hub does not recognise.
+- Tests: 12 new (relay unchanged, the refused cancel, the log holding no marker, wrong audience and scope, POST only,
+  merges relayed and moving the pseudonym, not moving it when unanswered, labels counted and kept short); 170 in all.
+
+**Not built, said plainly:**
+
+- **Nothing sends or receives these flows yet.** ClinicHub has no prescribing (no drugs, no prescriptions) and sends no
+  merge Bundle and no label; PharmaFlow has no electronic-prescription intake and no sign-in through ClinicHub; LabFlow
+  and ClinicReport do not read a merge or a label. Tested with synthetic Bundles and WireMock only.
+- No event for a prescription or a merge. Events published before a merge keep the old pseudonym; the feed does not say
+  two pseudonyms are one person (events.md).
+- The hub does not check that a result for a restricted order comes back labelled, and does not add, remove or change
+  a label: relaying is unchanged.
+- The pseudonym move needs the MRN in the merge Bundle to be in the system the hub reads (`hub.events.mrn-system`).
+
+**Other repositories — to do locally, not done:**
+
+1. **ClinicHub:** (a) a client `pharmaflow` for order-style service tokens: `aud` `pharmaflow`, scope `prescriptions`
+   (where it signs the one for LabFlow); (b) send the merge Bundle (flow 6) to each app that received something for the
+   merged record, in the transaction of the merge or from its outbox, through the hub route; (c) put `meta.security` on
+   an order or prescription a consent directive covers, and decide which directive is which code (question 23);
+   (d) **prescribing**, which does not exist: drugs (DIN), directions, quantity, repeats, a prescription that is signed,
+   its Bundle, its cancel. That is a module of its own, not a change.
+2. **PharmaFlow:** (a) an intake for the e-prescription Bundle into reception (its README lists it as open), idempotent
+   on the prescription identifier; (b) sign-in through ClinicHub and a check of the service token (`aud`, scope); (c) a
+   cancel that answers `409` once dispensing has started; (d) read the merge Bundle.
+3. **LabFlow, ClinicReport:** read the merge Bundle (repoint what they hold for the merged MRN, question 22) and the
+   label (limit who sees the order and its result, and put the label on the report they send back).
+4. **Analytics:** nothing, unless it should unify a merged patient's two pseudonyms: that needs a `patient.merged` event
+   the hub does not send.
 
 ### Phase 6 — Admin web and operations
 

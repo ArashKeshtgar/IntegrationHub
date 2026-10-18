@@ -67,6 +67,64 @@ Senders' outboxes: LabFlow `lab.OutboundMessage` (database/051), ClinicReport `R
 Kinds: Invoice, Receipt, Adjustment, Bill, Payment, Usage, Reversal. `externalId` is idempotent per app. **No
 health information** in these documents. ClinicHub config: `Integrations:Finance:BaseUrl`.
 
+### 5. Electronic prescriptions — ClinicHub → PharmaFlow (phase 5; the hub is ready, nothing sends it yet)
+`POST {pharmaflow}/fhir`, transaction Bundle, through the hub route `pharmaflow` (`/route/pharmaflow/fhir`). ClinicHub
+signs the token itself: `aud` `pharmaflow`, scope `prescriptions`, `clinic_slug`. The Bundle is built like an order's
+(flow 1): a `Patient` (MRN `urn:clinichub:{clinic}:mrn`, health card, name, birth date, as in an order), a
+`Practitioner` (CPSO), and one `MedicationRequest` per drug:
+
+| Field | Content |
+|---|---|
+| `identifier` | `urn:clinichub:{clinic}:prescription` \| `{id}`. A Bundle sent again is the same prescription: PharmaFlow must not enter it twice |
+| `status`, `intent` | `active`, `order` |
+| `medicationCodeableConcept.coding` | the drug as a DIN: system `http://hl7.org/fhir/NamingSystem/ca-hc-din` (see open question 21) |
+| `subject`, `requester` | the Patient and Practitioner of the Bundle |
+| `authoredOn` | the date written |
+| `dosageInstruction[0].text` | the directions (sig) |
+| `dispenseRequest` | `quantity.value`, `numberOfRepeatsAllowed` |
+| `note` | free text for the pharmacist, if any |
+
+`200` with a `transaction-response` (the ids PharmaFlow made, as for an order) = received into reception as an
+electronic prescription. **Cancelling** is the same Bundle again with `status: cancelled`, a note with the reason, and
+`request` = `PUT MedicationRequest?identifier=urn:clinichub:{clinic}:prescription|{id}` (the way an order's cancel
+is sent, flow 2); `200` = cancelled, **`409` + OperationOutcome = refused** (already dispensed or being filled): an
+answer, not a failure, passed through and not retried.
+
+The hub relays it unchanged and logs only the resource types, the prescription's id and its status. **Never** the drug,
+the directions, the quantity, the doctor or the patient. A prescription makes **no event** for Analytics: what a patient
+is prescribed says too much about them even without a name.
+
+### 6. Patient merges — ClinicHub → every app that received an order or prescription for the merged record
+When ClinicHub merges two patient records it sends, to each app that had something for the merged record (it knows:
+the `TargetSystem` of the merged record's orders), through that app's route (`labflow`, `clinicreport`, `pharmaflow`),
+a transaction Bundle with one entry:
+
+```json
+{ "resource": { "resourceType": "Patient", "active": false,
+    "identifier": [{ "system": "urn:clinichub:harbourview:mrn", "value": "{merged MRN}" }],
+    "link": [{ "type": "replaced-by",
+               "other": { "identifier": { "system": "urn:clinichub:harbourview:mrn", "value": "{survivor MRN}" } } }] },
+  "request": { "method": "PUT", "url": "Patient?identifier=urn:clinichub:harbourview:mrn|{merged MRN}" } }
+```
+
+Nothing else about the patient is sent (no name, health card or birth date). The receiving app repoints what it holds
+for the merged MRN to the survivor's; `200` = done, and a patient it never had is also `200` (nothing to do). The hub
+relays it unchanged. When the app answers 2xx the hub also moves the pseudonym it remembers for the merged patient's
+orders to the survivor's, so results that come later carry the survivor's pseudonym. A merge makes no event, and events
+already published keep the pseudonym they had (see [events.md](events.md)).
+
+### 7. Confidentiality labels — on orders, prescriptions and results (phase 5)
+A patient's consent directive (ClinicHub's lockbox) that covers an order or prescription is sent as a label on the
+resource: `meta.security` with a coding of the HL7 v3 Confidentiality system
+`http://terminology.hl7.org/CodeSystem/v3-Confidentiality`: `R` (restricted) or `V` (very restricted). The receiving
+app limits who may see the order and its result to people allowed by that label, and puts the **same label on the
+DiagnosticReport** it sends back. An app that does not know a code treats it as `R`. Which directive becomes which
+code is ClinicHub's decision (open question 23).
+
+The hub relays labels unchanged. It logs the codes (a short code only: anything else is logged as `other`) in the
+message's `securityLabels` and counts them: `hub.consent.labelled{route,code}`, so a privacy officer can see that
+restricted items pass through. It does **not** check that a restricted order's result comes back labelled.
+
 ## Retry behaviour already in the senders
 
 Every sender has an outbox: 10 s, 20 s, 40 s… up to 30 min, *Not delivered* after 12 tries, manual *Try again now*.
@@ -75,9 +133,10 @@ when the upstream is unreachable), and the sender's outbox retries.
 
 ## Known gaps in the platform (candidates for phase 5)
 
-- Electronic prescriptions ClinicHub → PharmaFlow: not built (PharmaFlow README).
-- Patient merges are not sent to LabFlow/ClinicReport (FHIR `Patient.link` not built).
-- Consent directives are not sent with orders.
+- Electronic prescriptions ClinicHub → PharmaFlow: contract and route in the hub (flow 5); ClinicHub has no
+  prescribing yet and PharmaFlow no intake or sign-in through ClinicHub.
+- Patient merges are not sent to LabFlow/ClinicReport/PharmaFlow: contract and the hub's part done (flow 6).
+- Consent directives are not sent with orders: contract and the hub's part done (flow 7).
 - LabFlow: "HL7 v2 ORU export (OLIS simulation)" is open.
 
 ## Identifier systems
@@ -124,4 +183,13 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
     not 4xx. If it answers 4xx the hub treats the result as refused (`REJECTED`) and tells the lab AR.
 19. OLIS: the real message profile is not known to the hub (required fields, identifiers). The export is for
     `tools/olis-sim` only.
-
+20. Prescriptions (phase 5): ClinicHub needs a token for `aud` `pharmaflow`, scope `prescriptions` (like the one for
+    LabFlow's orders), and PharmaFlow has to accept it: today it has no sign-in through ClinicHub.
+21. The DIN system name: `http://hl7.org/fhir/NamingSystem/ca-hc-din` is the one HL7 registers for Health Canada's
+    Drug Identification Number; PharmaFlow's drug catalog may key drugs differently (see its mapping study).
+22. Merges: LabFlow and ClinicReport match patients by health card or name and birth date, not by MRN. Do they keep
+    the MRN of an order's patient, so that "repoint what you hold for the merged MRN" has something to find?
+23. Labels: which code does a lockbox on the entire record, on one visit and on one provider each become, and does an
+    app return the label on its results?
+24. The hub's pseudonym move on a merge needs ClinicHub's MRN system to be `hub.events.mrn-system` (flow 6 uses
+    `urn:clinichub:{clinic}:mrn`, as an order's Patient does).
