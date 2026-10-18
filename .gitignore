@@ -1,0 +1,6 @@
+target/
+.idea/
+*.iml
+.env
+node_modules/
+web/dist/
