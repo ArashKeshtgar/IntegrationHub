@@ -1,0 +1,27 @@
+server:
+  port: 5700
+
+spring:
+  application:
+    name: integrationhub
+  datasource:
+    url: ${HUB_DB_URL:jdbc:postgresql://localhost:5433/integrationhub}
+    username: ${HUB_DB_USER:integrationhub}
+    password: ${HUB_DB_PASSWORD:integrationhub}
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    git:
+      mode: simple
+    build:
+      enabled: true

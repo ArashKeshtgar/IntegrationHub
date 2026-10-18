@@ -48,7 +48,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Skeleton: build, health, CI, Docker, local compose | Not started |
+| 0 | Skeleton: build, health, CI, Docker, local compose | **Done** |
 | 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | Not started |
 | 2 | Orders, cancels and financial documents through the hub | Not started |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | Not started |
@@ -72,6 +72,10 @@ in other repositories are listed per phase; they are made there, in their own co
 - Code style: Spotless (google-java-format). README: how to run.
 
 **Done when:** `mvn verify` passes in CI; `docker compose up` + `mvn spring-boot:run` answers on `:5700/actuator/health`.
+
+**Built:** all of the above. Spring Boot 3.5, Spotless runs in `verify`. Only `/actuator/health` and `/actuator/info`
+are open; every other path answers `401` until phase 1 adds the token check. Not built: RabbitMQ in the compose file
+(phase 3). Not yet seen running: the first CI run on GitHub, and `docker build` of the full image (see README).
 
 ### Phase 1 — Results relay
 
