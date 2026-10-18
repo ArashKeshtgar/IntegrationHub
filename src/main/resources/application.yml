@@ -14,12 +14,24 @@ spring:
     password: ${HUB_DB_PASSWORD:integrationhub}
   flyway:
     enabled: true
+  rabbitmq:
+    host: ${HUB_RABBITMQ_HOST:localhost}
+    port: ${HUB_RABBITMQ_PORT:5672}
+    username: ${HUB_RABBITMQ_USER:guest}
+    password: ${HUB_RABBITMQ_PASSWORD:guest}
+    connection-timeout: 5s
+    publisher-confirm-type: correlated
 
 management:
+  health:
+    # The relay works with the broker down (events wait in the outbox), so its state is a metric
+    # (hub.events.outbox.*), not a reason for the health check to fail.
+    rabbit:
+      enabled: false
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
@@ -31,6 +43,18 @@ management:
       enabled: true
 
 hub:
+  events:
+    # De-identified events to RabbitMQ (docs/events.md). Off until a secret is set.
+    enabled: ${HUB_EVENTS_ENABLED:false}
+    pseudonym-secret: ${HUB_EVENTS_PSEUDONYM_SECRET:}
+    mrn-system: urn:clinichub:{clinic}:mrn
+    exchange: clinical.events
+    queue: analytics.clinical-events
+  admin:
+    # Reading the message log and metrics: a ClinicHub token with this permission.
+    permission: integrationhub:messages.view
+    audience: ''
+    local-access: false
   auth:
     # ClinicHub (OpenIddict). Keys are read from {issuer}.well-known/jwks unless jwks-uri is set.
     issuer: ${HUB_AUTH_ISSUER:http://localhost:5301/}

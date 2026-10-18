@@ -1,6 +1,8 @@
 package ca.arashkeshtgar.integrationhub.relay;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Collects what is known about one call while it is handled, then becomes the log entry. */
@@ -16,6 +18,9 @@ final class CallContext {
   private Long requestSize;
   private String sha256;
   private BodySummary summary;
+  private final Instant receivedAt = Instant.now();
+  private HubProperties.BodyFormat format;
+  private Optional<BodySummary.Identifier> queryIdentifier = Optional.empty();
 
   CallContext(UUID id, String route, HttpServletRequest request, String path) {
     this.id = id;
@@ -28,6 +33,46 @@ final class CallContext {
 
   String route() {
     return route;
+  }
+
+  Instant receivedAt() {
+    return receivedAt;
+  }
+
+  String method() {
+    return method;
+  }
+
+  String path() {
+    return path;
+  }
+
+  String sender() {
+    return senderClientId;
+  }
+
+  String sha256() {
+    return sha256;
+  }
+
+  BodySummary summary() {
+    return summary;
+  }
+
+  HubProperties.BodyFormat format() {
+    return format;
+  }
+
+  Optional<BodySummary.Identifier> queryIdentifier() {
+    return queryIdentifier;
+  }
+
+  void format(HubProperties.BodyFormat format) {
+    this.format = format;
+  }
+
+  void queryIdentifier(Optional<BodySummary.Identifier> identifier) {
+    this.queryIdentifier = identifier;
   }
 
   void sender(String clientId) {
@@ -44,6 +89,7 @@ final class CallContext {
     Long size = requestSize != null ? requestSize : (declaredSize >= 0 ? declaredSize : null);
     return new MessageLog.Entry(
         id,
+        receivedAt,
         route,
         senderClientId,
         summary == null ? null : summary.clinicSlug(),

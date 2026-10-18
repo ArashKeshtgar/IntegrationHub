@@ -1,5 +1,8 @@
 package ca.arashkeshtgar.integrationhub.relay;
 
+import ca.arashkeshtgar.integrationhub.events.EventFactory;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -21,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -61,12 +65,21 @@ public class RelayController {
   private final HubProperties properties;
   private final TokenValidator tokens;
   private final MessageLog messages;
+  private final EventFactory eventFactory;
+  private final MeterRegistry meters;
   private final Map<String, HttpClient> clients = new ConcurrentHashMap<>();
 
-  public RelayController(HubProperties properties, TokenValidator tokens, MessageLog messages) {
+  public RelayController(
+      HubProperties properties,
+      TokenValidator tokens,
+      MessageLog messages,
+      EventFactory eventFactory,
+      MeterRegistry meters) {
     this.properties = properties;
     this.tokens = tokens;
     this.messages = messages;
+    this.eventFactory = eventFactory;
+    this.meters = meters;
   }
 
   @RequestMapping("/route/{route}/**")
@@ -83,6 +96,7 @@ public class RelayController {
       refuse(response, call, started, 404, "not-found", "No such route.", "unknown-route-or-path");
       return;
     }
+    call.format(route.bodyFormat());
     String method = request.getMethod();
     if (!route.allowedMethods().contains(method)) {
       response.setHeader("Allow", String.join(", ", route.allowedMethods()));
@@ -138,7 +152,9 @@ public class RelayController {
     }
     String rawQuery = request.getQueryString();
     BodySummary summary = body.length == 0 ? BodySummary.unparsed() : summarise(route, body);
-    summary = BodySummary.identifierInQuery(rawQuery).map(summary::withIdentifier).orElse(summary);
+    var queryIdentifier = BodySummary.identifierInQuery(rawQuery);
+    call.queryIdentifier(queryIdentifier);
+    summary = queryIdentifier.map(summary::withIdentifier).orElse(summary);
     call.body(body, sha256(body), summary);
 
     URI target;
@@ -314,7 +330,28 @@ public class RelayController {
   private void finish(
       CallContext call, long started, Integer upstreamStatus, int responseStatus, String error) {
     long ms = (System.nanoTime() - started) / 1_000_000;
-    messages.write(call.build(upstreamStatus, responseStatus, ms, error));
+    EventFactory.Result events = EventFactory.Result.NONE;
+    try {
+      events =
+          eventFactory.create(
+              new EventFactory.Evidence(
+                  call.route(),
+                  call.method(),
+                  call.path(),
+                  call.sender(),
+                  call.receivedAt(),
+                  call.sha256(),
+                  call.summary(),
+                  call.queryIdentifier(),
+                  call.format(),
+                  upstreamStatus));
+    } catch (RuntimeException e) {
+      // Events must never stop a relay; the call is still logged.
+      log.error(
+          "making events failed for route {}: {}", call.route(), e.getClass().getSimpleName());
+    }
+    messages.write(call.build(upstreamStatus, responseStatus, ms, error), events);
+    record(call.route(), upstreamStatus, responseStatus, ms);
     log.info(
         "relay route={} status={} upstream={} ms={} note={}",
         call.route(),
@@ -322,6 +359,29 @@ public class RelayController {
         upstreamStatus,
         ms,
         error);
+  }
+
+  /** Counters and a latency histogram. The route tag is only ever a configured name. */
+  private void record(String route, Integer upstreamStatus, int responseStatus, long ms) {
+    String tag = properties.routes().containsKey(route) ? route : "unknown";
+    meters
+        .counter("hub.messages", "route", tag, "status", String.valueOf(responseStatus))
+        .increment();
+    Timer.builder("hub.message.latency")
+        .description("Time from the call arriving to the answer being sent")
+        .tag("route", tag)
+        .publishPercentileHistogram()
+        .register(meters)
+        .record(ms, TimeUnit.MILLISECONDS);
+    String kind =
+        responseStatus == 504
+            ? "timeout"
+            : responseStatus == 502
+                ? "unreachable"
+                : upstreamStatus != null && upstreamStatus >= 500 ? "http-5xx" : null;
+    if (kind != null) {
+      meters.counter("hub.upstream.errors", "route", tag, "kind", kind).increment();
+    }
   }
 
   private static boolean hasDotSegments(String path) {

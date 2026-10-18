@@ -106,4 +106,10 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
 11. Does the sender's FHIR base setting end in `/fhir`? The hub relays only `/route/{app}/fhir…`.
 12. How does the .NET client write the cancel's query (`|` raw or `%7C`; `:` raw or `%3A`)? Both are relayed; the
     log understands both.
+13. Order Bundle (phase 3): the Patient's MRN is an identifier with system `urn:clinichub:{clinic}:mrn`. If it is
+    another system, set `hub.events.mrn-system`; without it events have no pseudonym.
+14. Order Bundle: each ServiceRequest has `identifier` = `urn:clinichub:{clinic}:service-request|{id}` (the same one a
+    cancel names in its query and a result names in `basedOn`). Events and the order memory depend on it.
+15. The first `coding` of a ServiceRequest / DiagnosticReport `code` is the test (LOINC for LabFlow, the template key for
+    ClinicReport); `priority` is the FHIR value (`routine`, `urgent`, `asap`, `stat`).
 

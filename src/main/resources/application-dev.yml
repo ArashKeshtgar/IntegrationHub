@@ -1,0 +1,5 @@
+# Development: `--spring.profiles.active=dev`
+hub:
+  admin:
+    # The message search and metrics are open to calls from this machine (not when a proxy forwards them).
+    local-access: true

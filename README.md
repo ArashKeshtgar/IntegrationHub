@@ -16,7 +16,7 @@ Java 21 · Spring Boot 3 · HAPI FHIR R4 / HL7 v2 · PostgreSQL · RabbitMQ · T
 Needs Java 21, Maven and Docker.
 
 ```
-docker compose up -d --wait      # PostgreSQL 16 on :5433
+docker compose up -d --wait      # PostgreSQL 16 on :5433, RabbitMQ on :5672 (UI :15672)
 mvn spring-boot:run              # API on :5700
 curl localhost:5700/actuator/health
 ```
@@ -31,12 +31,19 @@ A sender posts to `http://localhost:5700/route/{route}/fhir` instead of the appl
 already has. Routes are in `hub.routes` (`application.yml`): `clinichub` (results), `labflow` and `clinicreport` (orders, cancels), `finance` (financial documents); each lists the paths and methods it relays. To undo, point the sender back
 at the application. Every call, including refusals, is a row in `message` (metadata only, never the body).
 
+## Events, metrics, search
+
+- De-identified events to RabbitMQ for Analytics: [docs/events.md](docs/events.md). Off until
+  `HUB_EVENTS_ENABLED=true` and `HUB_EVENTS_PSEUDONYM_SECRET` (32+ characters) are set.
+- `GET /actuator/prometheus` (metrics) and `GET /api/messages` (search of the log) need a ClinicHub token with
+  `integrationhub:messages.view`; with `--spring.profiles.active=dev` a call from this machine needs none.
+
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
 - [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
 - [x] Phase 2 — orders, cancels, financial documents — hub done; the senders' settings are still to be changed, see the phase in docs/architecture.md
-- [ ] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
+- [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
 - [ ] Phase 4 — HL7 v2 in (external lab ORU) and out (OLIS simulation)
 - [ ] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags
 - [ ] Phase 6 — admin web with ClinicHub sign-in, replay, alerts

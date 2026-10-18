@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.DiagnosticReport;
+import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Reference;
 import org.hl7.fhir.r4.model.ServiceRequest;
 
@@ -39,7 +40,8 @@ public record BodySummary(
     Set<String> requestStatuses,
     String clinicSlug,
     Set<Identifier> identifiers,
-    Map<String, Object> extra) {
+    Map<String, Object> extra,
+    Facts facts) {
 
   public record Identifier(String system, String value) {}
 
@@ -60,17 +62,14 @@ public record BodySummary(
 
   public static BodySummary unparsed() {
     return new BodySummary(
-        false, null, null, Map.of(), Set.of(), Set.of(), null, Set.of(), Map.of());
+        false, null, null, Map.of(), Set.of(), Set.of(), null, Set.of(), Map.of(), Facts.empty());
   }
 
   /** A FHIR body: a Bundle or a single resource. */
   public static BodySummary of(byte[] body) {
     try {
       IBaseResource resource = PARSER.parseResource(new String(body, StandardCharsets.UTF_8));
-      Map<String, Integer> types = new TreeMap<>();
-      Set<String> reportStatuses = new TreeSet<>();
-      Set<String> requestStatuses = new TreeSet<>();
-      Set<Identifier> identifiers = new LinkedHashSet<>();
+      Collector c = new Collector();
       String bundleId = null;
       String bundleType = null;
       if (resource instanceof Bundle bundle) {
@@ -78,26 +77,38 @@ public record BodySummary(
         bundleType = bundle.hasType() ? bundle.getType().toCode() : null;
         for (Bundle.BundleEntryComponent entry : bundle.getEntry()) {
           if (entry.hasResource()) {
-            count(entry.getResource(), types, reportStatuses, requestStatuses, identifiers);
+            count(entry.getResource(), c);
           }
         }
       } else {
-        count(resource, types, reportStatuses, requestStatuses, identifiers);
+        count(resource, c);
       }
       return new BodySummary(
           true,
           bundleId,
           bundleType,
-          types,
-          reportStatuses,
-          requestStatuses,
-          clinic(identifiers),
-          identifiers,
-          Map.of());
+          c.types,
+          c.reportStatuses,
+          c.requestStatuses,
+          clinic(c.identifiers),
+          c.identifiers,
+          Map.of(),
+          new Facts(c.orders, c.reports, List.of(), c.patientIdentifiers));
     } catch (RuntimeException e) {
       // Not logged with its message: it can quote the body.
       return unparsed();
     }
+  }
+
+  /** Everything gathered from one body. */
+  private static final class Collector {
+    final Map<String, Integer> types = new TreeMap<>();
+    final Set<String> reportStatuses = new TreeSet<>();
+    final Set<String> requestStatuses = new TreeSet<>();
+    final Set<Identifier> identifiers = new LinkedHashSet<>();
+    final List<Facts.Order> orders = new ArrayList<>();
+    final List<Facts.Report> reports = new ArrayList<>();
+    final List<Identifier> patientIdentifiers = new ArrayList<>();
   }
 
   /**
@@ -117,6 +128,7 @@ public record BodySummary(
         documents.add(root);
       }
       Set<Identifier> identifiers = new LinkedHashSet<>();
+      List<Facts.FinanceDocument> facts = new ArrayList<>();
       List<Map<String, String>> items = new ArrayList<>();
       Map<String, Integer> kinds = new TreeMap<>();
       Set<String> sourceKeys = new TreeSet<>();
@@ -140,6 +152,9 @@ public record BodySummary(
         if (sourceKey != null && externalId != null) {
           add(identifiers, new Identifier(FINANCE_SYSTEM_PREFIX + sourceKey, externalId));
         }
+        if (facts.size() < MAX_IDENTIFIERS) {
+          facts.add(new Facts.FinanceDocument(sourceKey, externalId, kind));
+        }
       }
       Map<String, Object> extra = new TreeMap<>();
       extra.put("documents", documents.size());
@@ -147,7 +162,16 @@ public record BodySummary(
       extra.put("sourceKeys", List.copyOf(sourceKeys));
       extra.put("items", items);
       return new BodySummary(
-          true, null, null, Map.of(), Set.of(), Set.of(), null, identifiers, extra);
+          true,
+          null,
+          null,
+          Map.of(),
+          Set.of(),
+          Set.of(),
+          null,
+          identifiers,
+          extra,
+          new Facts(List.of(), List.of(), facts, List.of()));
     } catch (Exception e) {
       return unparsed();
     }
@@ -175,7 +199,8 @@ public record BodySummary(
         requestStatuses,
         clinicSlug != null ? clinicSlug : clinic(all),
         all,
-        extra);
+        extra,
+        facts);
   }
 
   /** {@code identifier=system|value} in a raw query string, percent-decoded. */
@@ -204,6 +229,15 @@ public record BodySummary(
     }
   }
 
+  /** The clinic slug of {@code urn:clinichub:{clinic}:service-request}, if that is the system. */
+  public static Optional<String> clinicOf(String system) {
+    if (system == null) {
+      return Optional.empty();
+    }
+    Matcher m = CLINICHUB_SERVICE_REQUEST.matcher(system);
+    return m.matches() ? Optional.of(m.group(1)) : Optional.empty();
+  }
+
   private static String clinic(Set<Identifier> identifiers) {
     return identifiers.stream()
         .map(i -> CLINICHUB_SERVICE_REQUEST.matcher(i.system()))
@@ -213,27 +247,57 @@ public record BodySummary(
         .orElse(null);
   }
 
-  private static void count(
-      IBaseResource resource,
-      Map<String, Integer> types,
-      Set<String> reportStatuses,
-      Set<String> requestStatuses,
-      Set<Identifier> identifiers) {
-    types.merge(resource.fhirType(), 1, Integer::sum);
+  private static void count(IBaseResource resource, Collector c) {
+    c.types.merge(resource.fhirType(), 1, Integer::sum);
     if (resource instanceof DiagnosticReport report) {
       if (report.hasStatus()) {
-        reportStatuses.add(report.getStatus().toCode());
+        c.reportStatuses.add(report.getStatus().toCode());
       }
-      for (Reference basedOn : report.getBasedOn()) {
-        identifier(basedOn).ifPresent(i -> add(identifiers, i));
+      List<Identifier> basedOn = new ArrayList<>();
+      for (Reference ref : report.getBasedOn()) {
+        identifier(ref)
+            .ifPresent(
+                i -> {
+                  add(c.identifiers, i);
+                  basedOn.add(i);
+                });
+      }
+      if (c.reports.size() < MAX_IDENTIFIERS) {
+        c.reports.add(
+            new Facts.Report(
+                report.hasStatus() ? report.getStatus().toCode() : null,
+                report.getCode().getCodingFirstRep().getSystem(),
+                report.getCode().getCodingFirstRep().getCode(),
+                basedOn));
       }
     } else if (resource instanceof ServiceRequest order) {
       if (order.hasStatus()) {
-        requestStatuses.add(order.getStatus().toCode());
+        c.requestStatuses.add(order.getStatus().toCode());
       }
-      order.getIdentifier().stream()
-          .filter(i -> i.hasSystem() && i.hasValue())
-          .forEach(i -> add(identifiers, new Identifier(i.getSystem(), i.getValue())));
+      for (org.hl7.fhir.r4.model.Identifier id : order.getIdentifier()) {
+        if (!id.hasSystem() || !id.hasValue()) {
+          continue;
+        }
+        Identifier own = new Identifier(id.getSystem(), id.getValue());
+        add(c.identifiers, own);
+        if (CLINICHUB_SERVICE_REQUEST.matcher(id.getSystem()).matches()
+            && c.orders.size() < MAX_IDENTIFIERS) {
+          c.orders.add(
+              new Facts.Order(
+                  own,
+                  order.getCode().getCodingFirstRep().getSystem(),
+                  order.getCode().getCodingFirstRep().getCode(),
+                  order.hasPriority() ? order.getPriority().toCode() : null,
+                  order.hasStatus() ? order.getStatus().toCode() : null));
+        }
+      }
+    } else if (resource instanceof Patient patient) {
+      // Only ClinicHub's own identifiers (the MRN); the health card number is never kept.
+      for (org.hl7.fhir.r4.model.Identifier id : patient.getIdentifier()) {
+        if (id.hasSystem() && id.hasValue() && id.getSystem().startsWith("urn:clinichub:")) {
+          c.patientIdentifiers.add(new Identifier(id.getSystem(), id.getValue()));
+        }
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 # Local development. PostgreSQL on 5433 so it does not clash with a local installation on 5432.
-# RabbitMQ is added in phase 3.
+# RabbitMQ carries the de-identified event feed (phase 3): AMQP on 5672, management UI on 15672.
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,5 +17,19 @@ services:
       timeout: 3s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - hub-mq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   hub-pg:
+  hub-mq:

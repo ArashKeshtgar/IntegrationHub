@@ -1,7 +1,12 @@
 package ca.arashkeshtgar.integrationhub.relay;
 
+import ca.arashkeshtgar.integrationhub.events.EventFactory;
+import ca.arashkeshtgar.integrationhub.events.EventOutbox;
+import ca.arashkeshtgar.integrationhub.events.OrderLinks;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -9,9 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/** Writes one row per call to {@code message}, plus the order identifiers found in it. */
+/**
+ * Writes one row per call to {@code message}, plus the order identifiers found in it and the events
+ * it caused, all in one transaction: a call is logged with its events or not at all.
+ */
 @Component
 public class MessageLog {
 
@@ -20,6 +28,7 @@ public class MessageLog {
   /** Metadata only. There is deliberately no field for a body. */
   public record Entry(
       UUID id,
+      Instant receivedAt,
       String route,
       String senderClientId,
       String clinicSlug,
@@ -37,36 +46,58 @@ public class MessageLog {
 
   private final JdbcTemplate jdbc;
   private final ObjectMapper json;
+  private final TransactionTemplate transaction;
+  private final EventOutbox outbox;
+  private final OrderLinks links;
 
-  public MessageLog(JdbcTemplate jdbc, ObjectMapper json) {
+  public MessageLog(
+      JdbcTemplate jdbc,
+      ObjectMapper json,
+      TransactionTemplate transaction,
+      EventOutbox outbox,
+      OrderLinks links) {
     this.jdbc = jdbc;
     this.json = json;
+    this.transaction = transaction;
+    this.outbox = outbox;
+    this.links = links;
+  }
+
+  public void write(Entry entry) {
+    write(entry, EventFactory.Result.NONE);
   }
 
   /**
    * A failing log must not stop a result from reaching ClinicHub, so errors are reported, not
-   * thrown.
+   * thrown. When it fails nothing is kept: neither the row nor its events.
    */
-  public void write(Entry entry) {
+  public void write(Entry entry, EventFactory.Result events) {
     try {
-      insert(entry);
-    } catch (RuntimeException | JsonProcessingException e) {
+      transaction.executeWithoutResult(
+          status -> {
+            try {
+              insert(entry, events);
+            } catch (JsonProcessingException e) {
+              throw new IllegalStateException(e);
+            }
+          });
+    } catch (RuntimeException e) {
       log.error(
           "message log write failed for route {}: {}", entry.route(), e.getClass().getSimpleName());
     }
   }
 
-  @Transactional
-  void insert(Entry e) throws JsonProcessingException {
+  private void insert(Entry e, EventFactory.Result events) throws JsonProcessingException {
     String summary = e.summary() == null ? null : json.writeValueAsString(e.summary().toJson());
     jdbc.update(
         """
-        insert into message (id, route, direction, sender_client_id, clinic_slug, method, path,
+        insert into message (id, received_at, route, direction, sender_client_id, clinic_slug, method, path,
                              content_type, request_size, request_sha256, bundle_id, resource_summary,
                              upstream_status, response_status, latency_ms, error)
-        values (?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+        values (?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
         """,
         e.id(),
+        Timestamp.from(e.receivedAt()),
         cut(e.route(), 60),
         cut(e.senderClientId(), 100),
         cut(e.clinicSlug(), 60),
@@ -88,6 +119,12 @@ public class MessageLog {
       }
       jdbc.batchUpdate(
           "insert into message_identifier (message_id, system, value) values (?, ?, ?)", rows);
+    }
+    for (OrderLinks.Link link : events.links()) {
+      links.upsert(link);
+    }
+    for (var event : events.events()) {
+      outbox.add(e.id(), event);
     }
   }
 

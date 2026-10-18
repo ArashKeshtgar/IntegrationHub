@@ -59,17 +59,7 @@ public class TokenValidator {
 
   public Sender validate(String authorization, HubProperties.Route route)
       throws Rejected, Unavailable {
-    if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-      throw new Rejected("missing-token");
-    }
-    Jwt jwt;
-    try {
-      jwt = decoder.decode(authorization.substring(7).trim());
-    } catch (BadJwtException e) {
-      throw new Rejected("invalid-token: " + firstLine(e.getMessage()));
-    } catch (JwtException e) {
-      throw new Unavailable("token-verification-unavailable");
-    }
+    Jwt jwt = decode(authorization);
     if (!route.requiredScopes().isEmpty() && !scopes(jwt).containsAll(route.requiredScopes())) {
       throw new Rejected("wrong-scope");
     }
@@ -79,6 +69,20 @@ public class TokenValidator {
       throw new Rejected("wrong-audience");
     }
     return new Sender(clientId(jwt));
+  }
+
+  /** The signature, issuer and expiry of a bearer token; nothing about what it may do. */
+  public Jwt decode(String authorization) throws Rejected, Unavailable {
+    if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+      throw new Rejected("missing-token");
+    }
+    try {
+      return decoder.decode(authorization.substring(7).trim());
+    } catch (BadJwtException e) {
+      throw new Rejected("invalid-token: " + firstLine(e.getMessage()));
+    } catch (JwtException e) {
+      throw new Unavailable("token-verification-unavailable");
+    }
   }
 
   /** OpenIddict writes {@code scope} as a space separated string; a JSON array is accepted too. */

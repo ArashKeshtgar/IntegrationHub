@@ -51,7 +51,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 0 | Skeleton: build, health, CI, Docker, local compose | **Done** |
 | 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done** in the hub; the two sender settings below are still to be changed |
 | 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
-| 3 | Event feed to Analytics (de-identified), metrics, message search API | Not started |
+| 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done** in the hub; not yet tried with the real applications |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | Not started |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | Not started |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | Not started |
@@ -211,6 +211,68 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
   is down.
 - Metrics: messages per route/status, latency histogram, upstream errors. `GET /api/messages?route=&clinic=&status=&identifier=&from=&to=`
   (requires an admin token, phase 6 adds the UI; until then the dev profile allows it locally).
+
+**Built (this repository):**
+
+- **Events** ([events.md](events.md) is the contract, schema version 1): `order.placed`, `order.accepted`,
+  `order.cancelled`, `order.cancel-refused`, `result.final`, `result.amended`, `finance.document` to the topic exchange
+  `clinical.events` (the hub also declares the durable queue `analytics.clinical-events`, so nothing published before
+  Analytics first starts is dropped). Off by default: `HUB_EVENTS_ENABLED=true` and a pseudonym secret of 32+
+  characters, or the application does not start. `compose.yml` now has RabbitMQ.
+- **Pseudonym** = hex(HMAC-SHA256(secret, `clinic|MRN`)), the MRN read from the Patient identifier with system
+  `urn:clinichub:{clinic}:mrn` (setting `hub.events.mrn-system`); never the health card. Results and cancels do not
+  carry the patient, so the hub remembers pseudonym, application, test and priority per order (`order_link`, 365 days)
+  and uses them for the events of later results and cancels. A result for an unknown order has no pseudonym.
+- **Outbox**: events are written to `event_outbox` in the same transaction as the call's log row and sent by a
+  publisher with publisher confirms, retrying with a growing pause while RabbitMQ is down. Event ids come from the
+  content, so a resent call is one event. Tested with a real broker, including a call relayed while the broker is
+  down and published after it starts.
+- **Metrics** at `/actuator/prometheus`: `hub.messages{route,status}`, `hub.message.latency{route}` (histogram),
+  `hub.upstream.errors{route,kind=timeout|unreachable|http-5xx}`, `hub.events.outbox.pending`,
+  `hub.events.outbox.oldest.age.seconds`, `hub.events.published{result}`. The route label is only ever a configured
+  route (anything else is `unknown`).
+- **Search** `GET /api/messages?route=&clinic=&status=&identifier=&from=&to=&limit=&offset=` (newest first, at most
+  200 per page; `identifier` is a value or `system|value`; `status` is what the sender was told) and
+  `GET /api/messages/{id}`. Metadata only: there is no body to return.
+- **Who may read** the search and the metrics: a ClinicHub token with the permission `integrationhub:messages.view`
+  (`hub.admin.permission`), checked like the relay's tokens, and the audience when `hub.admin.audience` is set. The dev
+  profile (`--spring.profiles.active=dev`) also lets a call from this machine through without a token, but not one
+  that carries `X-Forwarded-For`, `Forwarded` or `X-Real-IP`. Without either, `401`/`403`. Fails closed: the paths
+  need an authority only that filter grants.
+- **A fix to phase 1**: `MessageLog.write` called its `@Transactional` method on itself, so the transaction never
+  applied and a log row and its identifiers were not written atomically. It uses a `TransactionTemplate` now, and a
+  test shows that if an event cannot be stored, nothing of the call is.
+- Tests: 105 in all (28 new in the events classes, the admin classes and the atomicity test), the events ones against
+  a real RabbitMQ in Testcontainers.
+
+**Decisions to check** (where the plan was not exact):
+
+- `order.placed` is made when the application **answered**, not only on success, so that `order.accepted` means
+  something different (a refused order is placed and not accepted). The plan says events follow a successful call;
+  change `EventFactory.orders` if you want them to coincide.
+- Results make events only for `final` and `amended` (the plan's list); `cancelled` and others make none.
+- The RabbitMQ health indicator is off: the relay works with the broker down. The state of the feed is the
+  `hub.events.outbox.*` metrics.
+
+**Not built / not known:**
+
+- The ClinicHub client `integrationhub` and its permissions do not exist yet (phase 4 / 6), so today a token for the
+  log has to be signed by ClinicHub with the permission added by hand; the dev profile is the practical way.
+- No consumer (Analytics phase 4) and no dashboards or alert rules for the metrics.
+- No free-text search, no total count, no web page (phase 6). `hub.payloads.store` still not built.
+- Not tried with the real applications' order Bundles: the MRN system and the identifier on the ServiceRequest are
+  assumptions (contracts.md, questions 13–15). If the MRN is not found the event is still made, with no pseudonym.
+
+**Other repositories — to do locally, not done:**
+
+1. ClinicHub: confirm the identifier system of the MRN on the Patient in an order Bundle and the identifier on each
+   ServiceRequest; if the MRN's system is not `urn:clinichub:{clinic}:mrn`, set `HUB_EVENTS_MRN_SYSTEM` (or
+   `hub.events.mrn-system`).
+2. ClinicHub: register the client `integrationhub` and the permission `integrationhub:messages.view` (the other
+   phase 6 permissions can wait).
+3. Choose and keep the pseudonym secret (`HUB_EVENTS_PSEUDONYM_SECRET`, 32+ characters). **Changing it changes every
+   pseudonym**, so the same patient becomes a new one in Analytics.
+4. Analytics (its phase 4): declare the queue as in events.md and ignore repeated `eventId`s.
 
 ### Phase 4 — HL7 v2
 
