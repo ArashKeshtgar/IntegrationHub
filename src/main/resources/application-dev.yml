@@ -3,3 +3,5 @@ hub:
   admin:
     # The message search and metrics are open to calls from this machine (not when a proxy forwards them).
     local-access: true
+    # The admin web (web/, npm run dev).
+    cors-origins: http://localhost:5701

@@ -115,7 +115,9 @@ public class Hl7OutboundWorker {
     int done = attempts + 1;
     if (done >= properties.retry().maxAttempts()) {
       jdbc.update(
-          "update hl7_outbound set status = 'FAILED', payload = null, attempts = ?, last_error = ? where id = ?",
+          "update hl7_outbound set status = 'FAILED', payload = case when ? then payload end,"
+              + " failed_at = now(), attempts = ?, last_error = ? where id = ?",
+          properties.replayWindowDays() > 0,
           done,
           error,
           id);

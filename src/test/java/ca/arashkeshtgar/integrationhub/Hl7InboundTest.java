@@ -207,7 +207,7 @@ class Hl7InboundTest extends RelayTestBase {
   }
 
   @Test
-  void aRetryThatKeepsFailingIsGivenUpAndTheHealthInformationDropped() throws Exception {
+  void aRetryThatKeepsFailingIsGivenUpAndItsPayloadKeptForReplay() throws Exception {
     CLINICHUB.stubFor(post("/fhir").willReturn(aResponse().withStatus(500)));
 
     assertThat(ackCode(mllp(server.port(), sample("oru-final.hl7", "T-FAIL-1")))).isEqualTo("AE");
@@ -215,7 +215,8 @@ class Hl7InboundTest extends RelayTestBase {
 
     Map<String, Object> failed = row("T-FAIL-1");
     assertThat(failed.get("attempts")).isEqualTo(3);
-    assertThat(failed.get("payload")).isNull();
+    assertThat(failed.get("payload")).as("encrypted, kept for the replay window").isNotNull();
+    assertThat(failed.get("failed_at")).isNotNull();
     assertThat(failed.get("last_error")).isEqualTo("clinichub-unavailable");
 
     // The lab can send it again once ClinicHub is fixed: a given-up message is processed anew.
@@ -233,7 +234,7 @@ class Hl7InboundTest extends RelayTestBase {
     assertThat(ackCode(ack)).isEqualTo("AR");
     Map<String, Object> row = row("T-REFUSED-1");
     assertThat(row.get("status")).isEqualTo("REJECTED");
-    assertThat(row.get("payload")).isNull();
+    assertThat(row.get("payload")).as("kept for the replay window").isNotNull();
     assertThat(row.get("last_status")).isEqualTo(422);
     assertThat(worker.runOnce()).isZero();
     assertThat(messages().get(0)).containsEntry("response_status", 422);

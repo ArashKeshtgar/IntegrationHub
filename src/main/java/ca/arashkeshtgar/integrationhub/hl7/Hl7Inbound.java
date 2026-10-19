@@ -208,8 +208,9 @@ public class Hl7Inbound {
       }
       case REJECTED -> {
         jdbc.update(
-            "update hl7_inbound set status = 'REJECTED', payload = null, attempts = attempts + 1,"
-                + " last_status = ?, last_error = ? where id = ?",
+            "update hl7_inbound set status = 'REJECTED', payload = case when ? then payload end,"
+                + " failed_at = now(), attempts = attempts + 1, last_status = ?, last_error = ? where id = ?",
+            keepForReplay(),
             delivery.status(),
             delivery.note(),
             id);
@@ -221,8 +222,9 @@ public class Hl7Inbound {
         int done = (attempts == null ? 0 : attempts) + 1;
         if (done >= properties.retry().maxAttempts()) {
           jdbc.update(
-              "update hl7_inbound set status = 'FAILED', payload = null, attempts = ?,"
-                  + " last_status = ?, last_error = ? where id = ?",
+              "update hl7_inbound set status = 'FAILED', payload = case when ? then payload end,"
+                  + " failed_at = now(), attempts = ?, last_status = ?, last_error = ? where id = ?",
+              keepForReplay(),
               done,
               delivery.status(),
               delivery.note(),
@@ -296,6 +298,14 @@ public class Hl7Inbound {
       log.error("making events failed for hl7: {}", e.getClass().getSimpleName());
       return EventFactory.Result.NONE;
     }
+  }
+
+  /**
+   * A given-up or refused message keeps its (encrypted) payload for the replay window so an
+   * operator can replay it; 0 days clears it at once.
+   */
+  private boolean keepForReplay() {
+    return properties.replayWindowDays() > 0;
   }
 
   Duration backoff(int attemptsDone) {

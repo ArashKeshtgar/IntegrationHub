@@ -19,13 +19,15 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Guards {@code /api/messages} and {@code /actuator/prometheus}. On success it gives the request
- * the authority {@link #AUTHORITY}; the security configuration requires it, so a path this filter
- * somehow misses stays closed.
+ * Guards {@code /api/messages}, {@code /api/admin} and {@code /actuator/prometheus}. On success it
+ * gives the request the authority {@link #AUTHORITY}, and {@link #REPLAY} when the caller may
+ * replay; the security configuration requires them, so a path this filter somehow misses stays
+ * closed. A POST under {@code /api/admin} (a replay) needs the replay permission.
  */
 public class AdminAccessFilter extends OncePerRequestFilter {
 
   public static final String AUTHORITY = "HUB_ADMIN";
+  public static final String REPLAY = "HUB_REPLAY";
 
   private final AdminProperties properties;
   private final TokenValidator tokens;
@@ -38,6 +40,8 @@ public class AdminAccessFilter extends OncePerRequestFilter {
   public static boolean guards(String path) {
     return path.equals("/api/messages")
         || path.startsWith("/api/messages/")
+        || path.equals("/api/admin")
+        || path.startsWith("/api/admin/")
         || path.equals("/actuator/prometheus");
   }
 
@@ -50,8 +54,13 @@ public class AdminAccessFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
+    if (request.getMethod().equals("OPTIONS")) {
+      chain.doFilter(
+          request, response); // a CORS preflight carries no token; CorsFilter answered it
+      return;
+    }
     if (properties.localAccess() && isLocal(request)) {
-      allow(request, response, chain, "local");
+      allow(request, response, chain, "local", true);
       return;
     }
     Jwt jwt;
@@ -68,20 +77,49 @@ public class AdminAccessFilter extends OncePerRequestFilter {
     boolean audienceOk =
         properties.audience().isBlank()
             || (jwt.getAudience() != null && jwt.getAudience().contains(properties.audience()));
-    if (!audienceOk || !permissions(jwt).contains(properties.permission())) {
-      deny(response, 403, "No permission to read the message log.");
+    Set<String> granted = permissions(jwt);
+    boolean canView = has(granted, properties.permission());
+    boolean canReplay = has(granted, properties.replayPermission());
+    boolean replaying = request.getRequestURI().startsWith("/api/admin") && isWrite(request);
+    if (!audienceOk || !canView || (replaying && !canReplay)) {
+      deny(
+          response,
+          403,
+          replaying
+              ? "No permission to replay messages."
+              : "No permission to read the message log.");
       return;
     }
-    allow(request, response, chain, jwt.getSubject());
+    allow(request, response, chain, jwt.getSubject(), canReplay);
+  }
+
+  private static boolean isWrite(HttpServletRequest request) {
+    return !request.getMethod().equals("GET") && !request.getMethod().equals("HEAD");
+  }
+
+  /** {@code integrationhub:messages.view} or the same without the prefix ClinicHub strips. */
+  static boolean has(Set<String> granted, String wanted) {
+    if (granted.contains(wanted)) {
+      return true;
+    }
+    int colon = wanted.indexOf(':');
+    return colon > 0 && granted.contains(wanted.substring(colon + 1));
   }
 
   private void allow(
-      HttpServletRequest request, HttpServletResponse response, FilterChain chain, String who)
+      HttpServletRequest request,
+      HttpServletResponse response,
+      FilterChain chain,
+      String who,
+      boolean canReplay)
       throws IOException, ServletException {
+    List<SimpleGrantedAuthority> authorities =
+        canReplay
+            ? List.of(new SimpleGrantedAuthority(AUTHORITY), new SimpleGrantedAuthority(REPLAY))
+            : List.of(new SimpleGrantedAuthority(AUTHORITY));
     SecurityContextHolder.getContext()
         .setAuthentication(
-            UsernamePasswordAuthenticationToken.authenticated(
-                who, null, List.of(new SimpleGrantedAuthority(AUTHORITY))));
+            UsernamePasswordAuthenticationToken.authenticated(who, null, authorities));
     chain.doFilter(request, response);
   }
 

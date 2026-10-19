@@ -53,6 +53,27 @@ java tools/olis-sim/OlisSim.java --port 2576 --out /tmp/olis      # the receiver
 
 The listener has no TLS: keep it on a private network. Details and what is not built: docs/architecture.md, phase 4.
 
+## Admin web and operations
+
+```
+cd web && npm install && npm run dev      # http://localhost:5701, signs in through ClinicHub
+```
+
+Needs ClinicHub running with the clients `integrationhub-admin` (and `integrationhub`) from its `appsettings.Development.json`,
+and the hub started with `--spring.profiles.active=dev` (CORS for :5701) or `HUB_ADMIN_CORS_ORIGINS=http://localhost:5701`.
+A person needs the ClinicHub permission *See the message log* (Administrator has it); *Replay an HL7 message* is separate.
+
+- **Overview:** each route's health from the message log (a call failed when the hub answered 5xx), the HL7 queues, open alerts.
+- **Messages:** search, then one call's facts, its timeline and the other calls with the same identifier. No bodies: the hub keeps none.
+- **Dead letters:** HL7 messages given up on or refused by ClinicHub. They keep their encrypted payload for
+  `HUB_HL7_REPLAY_WINDOW_DAYS` (default 7), so *Replay* puts one back in its queue; `0` drops the payload at once (no replay).
+- **Alerts:** `route-down` (`HUB_ALERTS_ROUTE_DOWN_MIN_FAILURES` failed calls and no answer from the upstream in
+  `HUB_ALERTS_ROUTE_DOWN_AFTER`) and `hl7-dead-letters`. Each goes to the log and, if `HUB_ALERTS_WEBHOOK_URL` is set, to that
+  URL as JSON when it opens and when it clears. No e-mail: let the webhook send it.
+
+`cd web && npm test` runs the web tests (Node 22). The hub, its database, RabbitMQ and the web run together in ControlPanel's
+`compose.apps.yml`. The API is in docs/architecture.md, phase 6.
+
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
@@ -60,7 +81,7 @@ The listener has no TLS: keep it on a private network. Details and what is not b
 - [x] Phase 2 — orders, cancels, financial documents — hub done and seen with ClinicHub and LabFlow (`Integrations:LabFlow:FhirBaseUrl`); the other senders' settings are still to be changed, see the phase in docs/architecture.md
 - [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
 - [x] Phase 4 — HL7 v2 in (external lab ORU over MLLP) and out (OLIS simulation) — hub done; no TLS on the listener, not tried with a real lab or OLIS, ClinicHub needs the `integrationhub` client, see the phase in docs/architecture.md
-- [x] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags — hub done (contracts, route `pharmaflow`, log, pseudonym on merges); nothing in ClinicHub, PharmaFlow, LabFlow or ClinicReport sends or reads them yet, see the phase in docs/architecture.md
-- [ ] Phase 6 — admin web with ClinicHub sign-in, replay, alerts
+- [x] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags — hub done (contracts, route `pharmaflow`, log, pseudonym on merges); e-prescriptions seen end to end with ClinicHub and PharmaFlow; no application sends or reads merges or labels yet, see the phase in docs/architecture.md
+- [x] Phase 6 — admin web with ClinicHub sign-in (`web/`, :5701), route health, message timeline, replay of HL7 dead letters, alerts to the log and a webhook, platform compose — no payload viewer, no e-mail alerts, replay only for HL7; see the phase in docs/architecture.md
 
 All data in tests and samples is synthetic.

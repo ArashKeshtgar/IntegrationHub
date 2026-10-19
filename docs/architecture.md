@@ -53,8 +53,8 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done** in the hub; not yet tried with the real applications |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
-| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); nothing in the other applications sends or receives them yet |
-| 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | Not started |
+| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels are sent or read by no application yet |
+| 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); no payload viewer, no e-mail alerts, replay only for HL7 |
 
 Each phase ends with its tests green in CI, this table updated, and the README's status list updated. Changes needed
 in other repositories are listed per phase; they are made there, in their own commits, and noted here.
@@ -455,11 +455,13 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
    merged record, in the transaction of the merge or from its outbox, through the hub route; (c) put `meta.security` on
    an order or prescription a consent directive covers, and decide which directive is which code (question 23);
    (d) **prescribing: done in ClinicHub `701de46`** (prescribing at a visit, the Bundle and cancel of flow 5, the
-   token with `aud` `pharmaflow` and scope `prescriptions`, so (a) is done too); not yet seen through the hub in a real
-   run.
-2. **PharmaFlow:** (a) an intake for the e-prescription Bundle into reception (its README lists it as open), idempotent
-   on the prescription identifier; (b) sign-in through ClinicHub and a check of the service token (`aud`, scope); (c) a
-   cancel that answers `409` once dispensing has started; (d) read the merge Bundle.
+   token with `aud` `pharmaflow` and scope `prescriptions`, so (a) is done too). **Seen through the hub in a real run**
+   against PharmaFlow's intake (a prescription sent and accepted, then cancelled before filling; the hub log held no
+   drug, patient or health card number). The refusal after filling (`409`) was seen against a stand-in and is
+   tested in PharmaFlow, not yet run live against PharmaFlow.
+2. **PharmaFlow:** (a) the intake for the e-prescription Bundle into reception, idempotent on the prescription
+   identifier, **done** (PharmaFlow `9d4de5c`); (b) sign-in through ClinicHub, **done** (PharmaFlow `82362e2`); (c) a
+   cancel that answers `409` once dispensing has started, **done**; (d) read the merge Bundle: not done.
 3. **LabFlow, ClinicReport:** read the merge Bundle (repoint what they hold for the merged MRN, question 22) and the
    label (limit who sees the order and its result, and put the label on the report they send back).
 4. **Analytics:** nothing, unless it should unify a merged patient's two pseudonyms: that needs a `patient.merged` event
@@ -467,11 +469,77 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
 
 ### Phase 6 — Admin web and operations
 
-- Admin web (`web/`, React + Vite, `:5701`) signed in through ClinicHub (client `integrationhub`, permissions
-  `integrationhub:messages.view`, `integrationhub:payloads.view`, `integrationhub:messages.replay`).
-- Message search, a message's timeline, replay of an asynchronous message, dead letters, route health.
-- Alerts: upstream failing for N minutes → log + optional e-mail/webhook.
-- Join the platform compose (ControlPanel), Docker image published from CI.
+**Built (this repository):**
+
+- **Admin API** under `/api/admin` (plus `/api/messages` and `/actuator/prometheus` as before), metadata only:
+  - `GET /api/admin/me`: who is calling, whether they may replay, whether HL7 is on.
+  - `GET /api/admin/overview`: every route's health, the queue sizes, the number of open alerts.
+  - `GET /api/admin/dead-letters`, `POST /api/admin/dead-letters/{inbound|outbound}/{id}/replay`.
+  - `GET /api/admin/alerts?state=open|all`.
+  - `GET /api/messages/{id}/timeline`: the call's answer, the events it caused, its HL7 queue rows, and the other calls
+    carrying the same identifier (order, result, cancel).
+- **Permissions:** `integrationhub:messages.view` for everything above; `integrationhub:messages.replay` for the POST.
+  ClinicHub hands an application its permissions **without** the application's prefix (`messages.view`), so the hub
+  accepts both spellings. (Until now it accepted only the prefixed one, which no ClinicHub token carries.) Refusals are
+  `{"error": "..."}`: 401 no token, 403 no permission.
+- **CORS:** only for `/api/**`, only for the pages in `hub.admin.cors-origins` (the admin web). The relay has none.
+- **Route health** (`hub.routes` plus `hl7` when the listener is on), read from the message log: calls and failures in
+  15 minutes and 24 hours, p95 latency, last answered, last failure. A call *failed* when the hub answered 5xx; it
+  *succeeded* when the upstream answered below 500 (a `409` from the pharmacy is an answer). Status: `down` (see alerts),
+  `degraded` (a failure in 15 minutes), `ok`, or `idle` (no calls: nothing probes the applications).
+- **Replay.** A message the hub gave up on (`FAILED`) or ClinicHub refused (`REJECTED`), and an OLIS copy that was given
+  up, now **keep their payload (still encrypted) for `hub.hl7.replay-window-days` (default 7) after `failed_at`**,
+  then the payload is dropped as before (the row stays until `hub.hl7.retention-days`). `0` drops it at once, as
+  before, and nothing can be replayed. Replay puts the row back to `PENDING` with no attempts; the retry worker takes it
+  within its interval. The row records the replay count, time and the sign-in subject (an account id, not a name);
+  the log line and the counter `hub.replays{queue}` do not name content. A message with no payload left, or not in a
+  failed state, answers `409` with the reason. **This changes how long encrypted health information stays in the
+  hub's database** (7 days longer for given-up messages); set the window to `0` to keep the old behaviour.
+- **Alerts.** Two kinds, one open row per kind and subject in `alert`: `route-down` (at least
+  `hub.alerts.route-down-min-failures`, default 3, calls failed and none was answered below 500 in
+  `hub.alerts.route-down-after`, default 5 minutes) and `hl7-dead-letters` (inbound or outbound rows given up or refused
+  and not replayed). Each is a log line (`ERROR`) and, with `hub.alerts.webhook-url`, a JSON POST when it opens and
+  when it resolves (kind, subject, state, times, a fixed phrase with counts: never content); a webhook that is down is
+  tried again every round. Gauge `hub.alerts.open`.
+- **Admin web** (`web/`, React + Vite + TypeScript, `:5701`): signs in through ClinicHub (authorization code with
+  PKCE, public client `integrationhub-admin`, token kept for the tab only), then Overview (routes, queues, alerts),
+  Messages (search, a message's facts and timeline, related calls), Dead letters (replay behind a second click, only for
+  those with the replay permission), Alerts. The nginx image proxies `/api` to the hub, so the page needs no CORS in the
+  platform compose.
+- **Platform compose:** the hub, its PostgreSQL and RabbitMQ and the web are in ControlPanel's `compose.apps.yml`
+  (ports 5700 and 5701 on 127.0.0.1; RabbitMQ on 127.0.0.1:5672 where Analytics' consumer looks). HL7, the event feed
+  and the webhook are off until their `.env` values are set.
+- **CI** builds the web (typecheck, tests, build) and both Docker images. Tests: 14 new in the hub (permissions and
+  CORS, route health, alerts and the webhook, dead letters and replay including the window, the timeline), 15 web
+  tests in 4 files, 2 in ClinicHub; 184 in the hub in all.
+
+**Not built, said plainly:**
+
+- **No payload viewer and no `integrationhub:payloads.view`.** The hub still stores no message bodies
+  (`hub.payloads.store` is not built), so there is nothing to view; the permission was dropped from the plan until a
+  store exists.
+- **Replay is for HL7 queue rows only.** A relayed call (results, orders, prescriptions) is synchronous and not stored:
+  the sender's own outbox retries it, and the hub cannot resend what it did not keep.
+- **No e-mail alerts.** Log and webhook only.
+- **No active probe.** Route health comes from real traffic; a route nobody calls is `idle`, not proven healthy.
+- Alerts have no acknowledge or snooze; the dead-letter alert clears when the rows are replayed or purged by the
+  retention period, so a message that is given up and never replayed keeps its alert for `hub.hl7.retention-days`.
+- No audit log of who *viewed* what in the admin web (the message log holds no content; a replay is recorded on its row).
+- The HL7 results path still ends in ClinicHub refusing: it has no order target for an external lab (see below).
+- The Docker images are built in CI, not pushed to a registry.
+- No end-to-end browser test in CI; the web was run by hand against ClinicHub.
+
+**Other repositories:**
+
+1. **ClinicHub (done in this change, in ClinicHub's repository):** the clients `integrationhub-admin` (public, for the
+   web, with `App: integrationhub` so its token carries the `integrationhub` permissions) and `integrationhub`
+   (confidential, scope `results`, for the HL7 path), and the permissions `integrationhub:messages.view` and
+   `integrationhub:messages.replay` (the Administrator role has them; no other role does). **Still missing in
+   ClinicHub:** an order target for an external lab. ClinicHub accepts results only for orders it sent to LabFlow or
+   ClinicReport, so a result the hub brings in over HL7 is refused (`403`, the hub marks it `REJECTED` and it can be
+   replayed once ClinicHub accepts it).
+2. **ControlPanel (done, in its repository):** the hub, its database, RabbitMQ and the web in `compose.apps.yml`, and the
+   `INTEGRATIONHUB_*` settings in `.env.example`. Not started with `up` there.
 
 ## Not in scope
 

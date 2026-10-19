@@ -36,6 +36,7 @@ class Hl7UnitTest {
             java.time.Duration.ofSeconds(1),
             5),
         14,
+        7,
         new Hl7Properties.ClinicHub(
             "http://t/token",
             "http://t/fhir",

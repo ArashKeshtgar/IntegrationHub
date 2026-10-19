@@ -59,6 +59,9 @@ hub:
     zone: ${HUB_HL7_ZONE:America/Toronto}
     # MSH-3.MSH-4 of the senders to accept, e.g. EXTLAB.LAB1. Empty = any sender.
     allowed-senders: ${HUB_HL7_ALLOWED_SENDERS:}
+    # A message the hub gave up on, or ClinicHub refused, keeps its (encrypted) payload this many days so it can be
+    # replayed from the admin web; then the payload is dropped. 0 = drop it at once (no replay).
+    replay-window-days: ${HUB_HL7_REPLAY_WINDOW_DAYS:7}
     mllp:
       port: ${HUB_HL7_MLLP_PORT:2575}
       bind-address: ${HUB_HL7_MLLP_BIND:0.0.0.0}
@@ -75,8 +78,21 @@ hub:
   admin:
     # Reading the message log and metrics: a ClinicHub token with this permission.
     permission: integrationhub:messages.view
+    # Replaying a given-up HL7 message (POST under /api/admin). ClinicHub hands the admin web its permissions
+    # without the prefix; both spellings are accepted.
+    replay-permission: integrationhub:messages.replay
     audience: ''
     local-access: false
+    # Pages that may call the API from a browser (the admin web), comma separated: http://localhost:5701
+    cors-origins: ${HUB_ADMIN_CORS_ORIGINS:}
+  alerts:
+    # A route is down after N failed calls and no answer from its upstream in the window; see AlertProperties.
+    enabled: ${HUB_ALERTS_ENABLED:true}
+    interval: 30s
+    route-down-after: ${HUB_ALERTS_ROUTE_DOWN_AFTER:5m}
+    route-down-min-failures: ${HUB_ALERTS_ROUTE_DOWN_MIN_FAILURES:3}
+    # Optional: POST {kind, subject, state, times, detail} here when an alert opens or resolves. No content.
+    webhook-url: ${HUB_ALERTS_WEBHOOK_URL:}
   auth:
     # ClinicHub (OpenIddict). Keys are read from {issuer}.well-known/jwks unless jwks-uri is set.
     issuer: ${HUB_AUTH_ISSUER:http://localhost:5301/}

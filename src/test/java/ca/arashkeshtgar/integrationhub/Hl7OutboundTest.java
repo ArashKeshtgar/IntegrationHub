@@ -213,7 +213,8 @@ class Hl7OutboundTest extends RelayTestBase {
   }
 
   @Test
-  void aReceiverThatRefusesOrNeverAnswersEndsInFailedAndTheMessageIsDropped() throws Exception {
+  void aReceiverThatRefusesOrNeverAnswersEndsInFailedAndTheMessageIsKeptForReplay()
+      throws Exception {
     startSim("reject");
     relayResult();
 
@@ -228,7 +229,7 @@ class Hl7OutboundTest extends RelayTestBase {
     Map<String, Object> failed = outbound();
     assertThat(failed.get("last_error")).isEqualTo("ack-ar");
     assertThat(failed.get("attempts")).isEqualTo(3);
-    assertThat(failed.get("payload")).isNull();
+    assertThat(failed.get("payload")).as("kept for the replay window").isNotNull();
 
     jdbc.update("delete from hl7_outbound");
     startSim("silent");

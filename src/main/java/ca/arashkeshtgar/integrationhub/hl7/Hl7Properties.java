@@ -1,6 +1,7 @@
 package ca.arashkeshtgar.integrationhub.hl7;
 
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.util.Base64;
@@ -24,6 +25,7 @@ public record Hl7Properties(
     @DefaultValue List<String> allowedSenders,
     @DefaultValue Retry retry,
     @DefaultValue("14") @Positive int retentionDays,
+    @DefaultValue("7") @PositiveOrZero int replayWindowDays,
     @DefaultValue ClinicHub clinichub,
     @DefaultValue Outbound outbound) {
 

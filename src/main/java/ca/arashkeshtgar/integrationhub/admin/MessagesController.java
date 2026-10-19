@@ -138,6 +138,172 @@ public class MessagesController {
     return found.get(0);
   }
 
+  public record Step(Instant at, String kind, String text) {}
+
+  public record Related(
+      UUID id, Instant receivedAt, String route, String method, Integer responseStatus) {}
+
+  public record Timeline(UUID id, List<Step> steps, List<Related> related) {}
+
+  /**
+   * What happened to one call: its answer, the events it caused, the queue rows it is in (HL7), and
+   * the other calls that carry the same identifier (the order, its result, its cancel). Fixed
+   * phrases and statuses only.
+   */
+  @GetMapping("/api/messages/{id}/timeline")
+  public Timeline timeline(@PathVariable UUID id) {
+    MessageView m = one(id);
+    List<Step> steps = new ArrayList<>();
+    steps.add(
+        new Step(
+            m.receivedAt(),
+            "received",
+            m.method()
+                + " "
+                + m.path()
+                + " on route "
+                + m.route()
+                + (m.senderClientId() == null ? "" : " from " + m.senderClientId())));
+    Instant answered =
+        m.latencyMs() == null ? m.receivedAt() : m.receivedAt().plusMillis(m.latencyMs());
+    if (m.upstreamStatus() != null) {
+      steps.add(
+          new Step(
+              answered,
+              "forwarded",
+              "The upstream answered " + m.upstreamStatus() + " after " + m.latencyMs() + " ms."));
+    } else {
+      steps.add(
+          new Step(
+              answered,
+              "not-forwarded",
+              "Not forwarded; the sender was told "
+                  + m.responseStatus()
+                  + (m.error() == null ? "." : " (" + m.error() + ").")));
+    }
+    jdbc.query(
+        "select event_type, created_at, published_at, attempts, last_error from event_outbox"
+            + " where message_id = ? order by created_at",
+        rs -> {
+          String type = rs.getString(1);
+          steps.add(
+              new Step(rs.getTimestamp(2).toInstant(), "event", "Event " + type + " queued."));
+          if (rs.getTimestamp(3) != null) {
+            steps.add(
+                new Step(rs.getTimestamp(3).toInstant(), "event", "Event " + type + " published."));
+          } else {
+            steps.add(
+                new Step(
+                    Instant.now(),
+                    "event-waiting",
+                    "Event "
+                        + type
+                        + " is waiting for the broker ("
+                        + rs.getInt(4)
+                        + " attempts"
+                        + (rs.getString(5) == null ? "" : ", " + rs.getString(5))
+                        + ")."));
+          }
+        },
+        id);
+    if ("hl7".equals(m.route()) && m.senderClientId() != null && m.bundleId() != null) {
+      jdbc.query(
+          "select received_at, status, attempts, delivered_at, failed_at, last_status, last_error,"
+              + " replay_count, last_replayed_at, last_replayed_by from hl7_inbound"
+              + " where sender = ? and control_id = ?",
+          rs -> {
+            steps.add(
+                new Step(
+                    rs.getTimestamp(1).toInstant(),
+                    "queue",
+                    "Result queued for ClinicHub (encrypted)."));
+            if (rs.getTimestamp(4) != null) {
+              steps.add(
+                  new Step(
+                      rs.getTimestamp(4).toInstant(),
+                      "queue",
+                      "Delivered to ClinicHub after " + rs.getInt(3) + " attempt(s)."));
+            }
+            if (rs.getTimestamp(5) != null) {
+              steps.add(
+                  new Step(
+                      rs.getTimestamp(5).toInstant(),
+                      "queue",
+                      ("REJECTED".equals(rs.getString(2)) ? "Refused by ClinicHub" : "Given up")
+                          + " after "
+                          + rs.getInt(3)
+                          + " attempt(s): "
+                          + rs.getString(7)
+                          + "."));
+            }
+            if (rs.getInt(8) > 0 && rs.getTimestamp(9) != null) {
+              steps.add(
+                  new Step(
+                      rs.getTimestamp(9).toInstant(),
+                      "replay",
+                      "Replayed " + rs.getInt(8) + " time(s); last by " + rs.getString(10) + "."));
+            }
+          },
+          m.senderClientId(),
+          m.bundleId());
+    }
+    jdbc.query(
+        "select created_at, status, attempts, sent_at, failed_at, last_error, replay_count,"
+            + " last_replayed_at, last_replayed_by from hl7_outbound where message_id = ?",
+        rs -> {
+          steps.add(
+              new Step(
+                  rs.getTimestamp(1).toInstant(),
+                  "queue",
+                  "Copy queued for the receiver (encrypted)."));
+          if (rs.getTimestamp(4) != null) {
+            steps.add(
+                new Step(
+                    rs.getTimestamp(4).toInstant(),
+                    "queue",
+                    "Sent to the receiver after " + rs.getInt(3) + " attempt(s)."));
+          }
+          if (rs.getTimestamp(5) != null) {
+            steps.add(
+                new Step(
+                    rs.getTimestamp(5).toInstant(),
+                    "queue",
+                    "Given up after " + rs.getInt(3) + " attempt(s): " + rs.getString(6) + "."));
+          }
+          if (rs.getInt(7) > 0 && rs.getTimestamp(8) != null) {
+            steps.add(
+                new Step(
+                    rs.getTimestamp(8).toInstant(),
+                    "replay",
+                    "Replayed " + rs.getInt(7) + " time(s); last by " + rs.getString(9) + "."));
+          }
+        },
+        id);
+    steps.sort(java.util.Comparator.comparing(Step::at));
+
+    List<Related> related =
+        jdbc.query(
+            """
+            select m.id, m.received_at, m.route, m.method, m.response_status
+              from message m
+             where m.id <> ?
+               and exists (select 1 from message_identifier a
+                             join message_identifier b on a.system = b.system and a.value = b.value
+                            where a.message_id = ? and b.message_id = m.id)
+             order by m.received_at limit 30
+            """,
+            (rs, i) ->
+                new Related(
+                    rs.getObject(1, UUID.class),
+                    rs.getTimestamp(2).toInstant(),
+                    rs.getString(3),
+                    rs.getString(4),
+                    (Integer) rs.getObject(5)),
+            id,
+            id);
+    return new Timeline(id, steps, related);
+  }
+
   private MessageView row(java.sql.ResultSet rs, int i) throws java.sql.SQLException {
     String summary = rs.getString(12);
     JsonNode node = null;

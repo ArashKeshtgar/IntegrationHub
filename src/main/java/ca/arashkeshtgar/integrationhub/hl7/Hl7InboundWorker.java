@@ -91,8 +91,23 @@ public class Hl7InboundWorker {
     return n;
   }
 
-  void purge() {
+  /** Public so tests can run it without waiting an hour. */
+  public void purge() {
     try {
+      // Past the replay window a given-up message loses its payload; the row stays for the log.
+      int cleared =
+          jdbc.update(
+              "update hl7_inbound set payload = null where payload is not null and status in ('FAILED', 'REJECTED')"
+                  + " and failed_at < now() - make_interval(days => ?)",
+              properties.replayWindowDays());
+      cleared +=
+          jdbc.update(
+              "update hl7_outbound set payload = null where payload is not null and status = 'FAILED'"
+                  + " and failed_at < now() - make_interval(days => ?)",
+              properties.replayWindowDays());
+      if (cleared > 0) {
+        log.info("cleared the payload of {} given-up hl7 rows past the replay window", cleared);
+      }
       int n =
           jdbc.update(
               "delete from hl7_inbound where status <> 'PENDING' and received_at < now() - make_interval(days => ?)",
