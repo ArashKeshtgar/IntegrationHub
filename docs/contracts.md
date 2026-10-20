@@ -177,12 +177,14 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
     ClinicReport); `priority` is the FHIR value (`routine`, `urgent`, `asap`, `stat`).
 16. HL7 v2 (phase 4): the placer order number in ORC-2/OBR-2 of a result from an external lab is
     `{order id}^{clinic slug}` (`101^harbourview`) or the whole identifier
-    `urn:clinichub:harbourview:service-request|101` (written with `\F\` for the bar). Nothing sends it yet; ClinicHub
-    has to decide how an order for an external lab is numbered.
+    `urn:clinichub:harbourview:service-request|101` (written with `\F\` for the bar). ClinicHub numbers an external-lab
+    order by its own order id, so these match it. Nothing sends the number to the lab yet: ClinicHub does not send
+    external-lab orders and the hub has no ORM^O01.
 17. HL7 v2: ClinicHub accepts a results Bundle from the client `integrationhub` (client credentials, scope `results`)
-    at `POST {clinichub}/fhir`, for orders sent to an external lab, and its token endpoint is `{issuer}connect/token`.
+    at `POST {clinichub}/fhir`, for orders placed to its `ExternalLab` target (and only those, at the clinic named in
+    `basedOn`), and its token endpoint is `{issuer}connect/token`. Built in ClinicHub and seen with the hub on 19 October 2026.
 18. HL7 v2: the same Bundle sent twice (the hub's retry after a lost answer) is answered 2xx or ignored by ClinicHub,
-    not 4xx. If it answers 4xx the hub treats the result as refused (`REJECTED`) and tells the lab AR.
+    not 4xx. (Read in ClinicHub's code, not run: the result is found by order and report identifier and replaced, answer 201. A resend with the same control id never reaches ClinicHub, the hub answers it itself.) If it answers 4xx the hub treats the result as refused (`REJECTED`) and tells the lab AR.
 19. OLIS: the real message profile is not known to the hub (required fields, identifiers). The export is for
     `tools/olis-sim` only.
 20. Prescriptions (phase 5): ClinicHub needs a token for `aud` `pharmaflow`, scope `prescriptions` (like the one for

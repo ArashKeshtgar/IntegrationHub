@@ -387,22 +387,28 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 - OBX value types other than NM, SN (simple form), ST, TX, FT, CE, CWE, CNE are refused (no ED/RP attachments, no
   dates, no repeating values). Specimen (SPM) and the OBR parent/child links are ignored.
 - A resend of a message whose first copy is still `PENDING` is not compared with it: the first content wins.
-- The `integrationhub` client in ClinicHub does not exist yet (see below); until it does the hub cannot deliver and
-  every inbound result waits and is finally `FAILED`.
+- **Seen end to end on 19 October 2026** (running hub, ClinicHub with its new `ExternalLab` target, a synthetic ORU^R01
+  sent over MLLP by hand): an order placed to the external lab became *Completed* with its result in the physician's
+  inbox, and the lab got `AA`. A message for an order that does not exist got `AR` (`REJECTED`, 403 from ClinicHub). A
+  resent copy got `AA already delivered` from the hub's own duplicate check, so ClinicHub's handling of a second
+  identical Bundle was **not** exercised. Before that change every inbound result ended `REJECTED`.
 - GitHub Actions has not run on this phase (the tests were run in this session only).
 - No admin screen for the queues (phase 6): look at `hl7_inbound` / `hl7_outbound` (no content in them) and the
   metrics; a `FAILED` row means the lab has to resend.
 
 **Other repositories — to do locally, not done:**
 
-1. ClinicHub: register the client `integrationhub` (client credentials) with scope `results` and make the results
-   endpoint accept a Bundle from it for an order that went to an **external** lab (today only LabFlow/ClinicReport
-   send results). Set `HUB_CLINICHUB_CLIENT_SECRET` to its secret. Confirm that the token endpoint is
-   `{issuer}connect/token`, or set `HUB_CLINICHUB_TOKEN_URL`.
-2. ClinicHub: decide how an order for an external lab gets its number to the lab, and make it the `101^harbourview`
-   form (order id, clinic slug) or the URN form, in ORC-2/OBR-2.
-3. ClinicHub: does it take the same Bundle twice (a resend after a lost answer)? The hub sends the same ids each time,
-   and an order that is already final may be answered 4xx, which marks the row `REJECTED`.
+1. ClinicHub — **done and seen with this hub (19 October 2026):** the client `integrationhub` (client credentials, scope
+   `results`) is registered, and the results endpoint maps it to a new order target `ExternalLab`: a Bundle is accepted
+   only for an order placed to that target at the clinic named in `basedOn` (403 otherwise). Set
+   `HUB_CLINICHUB_CLIENT_SECRET` to the client's secret (`dev-only-integrationhub-secret` in ClinicHub's development
+   settings). The token endpoint is `{issuer}connect/token`, or set `HUB_CLINICHUB_TOKEN_URL`.
+2. ClinicHub — **partly done:** an external-lab order is numbered by its ClinicHub order id, so `101^harbourview` or
+   the URN form in ORC-2/OBR-2 matches it. **Not built:** ClinicHub does not send the order to the lab and the hub has
+   no ORM^O01, so how the lab learns the number is still outside both (the requisition travels some other way).
+3. ClinicHub — **read in its code, not run:** a Bundle that arrives twice is stored once (the result is found by order
+   and report identifier and replaced), and answered 201 both times, so a resend is not `REJECTED`. This holds only if
+   the DiagnosticReport `identifier` is the same each time, which the hub guarantees.
 4. The lab or its interface engine: point it at `hub:2575`, agree the sender id (MSH-3/MSH-4) and what it does with AE.
 5. Choose and keep the queue key (`HUB_HL7_QUEUE_KEY`). Losing it makes queued rows unreadable (they are then given
    up after the retries); changing it with rows pending has the same effect.
