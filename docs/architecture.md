@@ -55,6 +55,7 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels are sent or read by no application yet |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); no payload viewer, no e-mail alerts, replay only for HL7 |
+| 7 | Orders to an external lab: ClinicHub's order Bundle becomes an HL7 ORM^O01 over MLLP | **Done** in the hub and ClinicHub; seen with `tools/olis-sim` as the lab, not with a real lab; no TLS |
 
 Each phase ends with its tests green in CI, this table updated, and the README's status list updated. Changes needed
 in other repositories are listed per phase; they are made there, in their own commits, and noted here.
@@ -531,7 +532,7 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
 - Alerts have no acknowledge or snooze; the dead-letter alert clears when the rows are replayed or purged by the
   retention period, so a message that is given up and never replayed keeps its alert for `hub.hl7.retention-days`.
 - No audit log of who *viewed* what in the admin web (the message log holds no content; a replay is recorded on its row).
-- The HL7 results path still ends in ClinicHub refusing: it has no order target for an external lab (see below).
+- (The HL7 results path ended in ClinicHub refusing, 403, until ClinicHub got an external-lab order target; fixed, see phase 4 and phase 7.)
 - The Docker images are built in CI, not pushed to a registry.
 - No end-to-end browser test in CI; the web was run by hand against ClinicHub.
 
@@ -540,12 +541,61 @@ Each needs work in the other repositories; the hub defines the contract (`docs/c
 1. **ClinicHub (done in this change, in ClinicHub's repository):** the clients `integrationhub-admin` (public, for the
    web, with `App: integrationhub` so its token carries the `integrationhub` permissions) and `integrationhub`
    (confidential, scope `results`, for the HL7 path), and the permissions `integrationhub:messages.view` and
-   `integrationhub:messages.replay` (the Administrator role has them; no other role does). **Still missing in
-   ClinicHub:** an order target for an external lab. ClinicHub accepts results only for orders it sent to LabFlow or
-   ClinicReport, so a result the hub brings in over HL7 is refused (`403`, the hub marks it `REJECTED` and it can be
-   replayed once ClinicHub accepts it).
+   `integrationhub:messages.replay` (the Administrator role has them; no other role does). The external-lab order
+   target that was missing here is built too (19 October 2026, after this phase): see phase 4 and phase 7.
 2. **ControlPanel (done, in its repository):** the hub, its database, RabbitMQ and the web in `compose.apps.yml`, and the
    `INTEGRATIONHUB_*` settings in `.env.example`. Not started with `up` there.
+
+### Phase 7 — Orders to an external lab (ORM^O01)
+
+Closes the loop of phase 4: a result from an external lab (ORU^R01 in) answers an order that ClinicHub has recorded
+(`ExternalLab` target); now ClinicHub can also **send** that order, through the hub, to the lab.
+
+- **Route `externallab`** (`POST|PUT /route/externallab/fhir`, setting `hl7-order: true`). ClinicHub posts the same order
+  Bundle it sends to LabFlow and signs the same kind of token (`aud` `externallab`, scope `orders`, `clinic_slug`). The
+  hub checks the token as for any route, turns the Bundle into **one ORM^O01** (`hl7/FhirToOrm`) and sends it over MLLP
+  to `hub.hl7.lab` (`HUB_HL7_LAB_HOST`, `HUB_HL7_LAB_PORT`). **The lab's ACK is the answer, in the same call:**
+  `AA`/`CA` gives `200` with a transaction-response, `AE`/`AR` gives `422` for an order (ClinicHub retries) and `409`
+  for a cancellation (ClinicHub treats it as the lab's answer, like LabFlow's), no ACK or no connection gives `502`, a
+  Bundle that is not an order gives `400`, no lab configured gives `503`.
+- **No queue and no retry in the hub:** ClinicHub's outbox retries (10 s up to 30 min, 12 times). Nothing is stored.
+- **The message:** `MSH` (v2.5, `UNICODE UTF-8`), `PID` (MRN as `MR`, health card as `JHN`, name, birth date, sex),
+  then per ServiceRequest `ORC` (`NW`, or `CA` for a cancellation; placer number `{order id}^{clinic slug}`, the
+  requisition in ORC-4, the order time, the ordering provider's CPSO number in ORC-12) and `OBR` (same placer number,
+  the test as `code^display^LN`, ordering provider, priority in OBR-27: `S` stat, `A` urgent/asap, `R` routine), and an
+  `NTE` with the clinical note. The lab quotes the placer number back in ORC-2/OBR-2 of its result, which is what
+  phase 4 reads (contracts.md, question 16).
+- **Patient identity goes to the lab, because an order needs it.** The hub builds the message in memory, sends it and
+  drops it. The message log holds metadata only, as for every route; the tests check that no name, number, note or
+  birth date reaches the log or the application log.
+- Metrics: `hub.hl7.orders{result=accepted|refused|unavailable|invalid|not_configured}`, and the usual per-route
+  `hub.messages{route=externallab}`.
+- **Seen end to end on 19 October 2026** with a second hub (new build, own database), ClinicHub and `tools/olis-sim` as
+  the lab: a Stat creatinine order went out as ORM^O01 and ClinicHub marked it *Accepted*; a hand-sent ORU^R01 quoting
+  `13^harbourview` made it *Completed*; cancelling another order sent `ORC|CA` and ended *Cancelled*. The simulator
+  checks nothing about the message, so this shows the path works, not that a real lab accepts the profile.
+- Tests (189 in the hub in all): `Hl7OrdersTest` (a socket plays the lab: exact segments and field positions, cancel as `CA`, `AR`/`AE`,
+  silence and hang-up, wrong audience and scope, a Bundle that is not an order).
+
+**Not built / not known:**
+
+- **No TLS** on the MLLP connection to the lab (as in phase 4). One connection per message, no keep-alive.
+- **Not tried with a real lab.** The segments follow HL7 v2.5 as commonly used for orders; a real lab will want its own
+  profile (its test codes, specimen information in `SPM`/`OBR`, accession handling, required `PV1`). Test codes are sent
+  as ClinicHub's LOINC; a lab that uses its own codes needs a mapping table, which does not exist.
+- **The order's filler number is not kept.** The ACK of an ORM carries none, so ClinicHub's order has no external id.
+- A refused order (`AR`) is retried by ClinicHub up to 12 times before it is marked *Not delivered*; the hub cannot tell
+  ClinicHub that it is permanent without changing ClinicHub's retry rules.
+- Only ORM^O01 (new and cancel). No order change, no order status query, no OML^O21.
+- A cancellation after the lab has resulted is the lab's decision (it should answer `AR`/`AE`); the hub does not know.
+
+**Other repositories:**
+
+1. **ClinicHub (done):** `Integrations:ExternalLab:FhirBaseUrl` set to the hub route (`http://localhost:5700/route/externallab/fhir`)
+   makes external-lab orders go through the outbox like LabFlow's; unset, they are only recorded (status
+   `AwaitingResult`), as before.
+2. The lab or its interface engine: listen on the port in `HUB_HL7_LAB_PORT`, accept ORM^O01 and answer with an ACK, and
+   quote ORC-2/OBR-2 in the result it sends back.
 
 ## Not in scope
 

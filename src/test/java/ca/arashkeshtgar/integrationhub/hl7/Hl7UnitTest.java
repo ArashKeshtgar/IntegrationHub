@@ -52,6 +52,14 @@ class Hl7UnitTest {
             "HUB",
             "OLIS",
             "OLIS",
+            java.time.Duration.ofSeconds(1)),
+        new Hl7Properties.Lab(
+            null,
+            2577,
+            "INTEGRATIONHUB",
+            "HUB",
+            "EXTLAB",
+            "LAB1",
             java.time.Duration.ofSeconds(1)));
   }
 

@@ -127,6 +127,15 @@ The hub relays labels unchanged. It logs the codes (a short code only: anything 
 message's `securityLabels` and counts them: `hub.consent.labelled{route,code}`, so a privacy officer can see that
 restricted items pass through. It does **not** check that a restricted order's result comes back labelled.
 
+### 8. Orders to an external lab — ClinicHub → hub → lab (phase 7)
+`POST|PUT {hub}/route/externallab/fhir`, the same order Bundle as flow 1 (and the same cancel Bundle as flow 2), with a
+token `aud` `externallab`, scope `orders`, `clinic_slug`. ClinicHub sends it when `Integrations:ExternalLab:FhirBaseUrl`
+is set to this route; unset, the order is only recorded. The hub answers for the lab, after an ORM^O01 over MLLP and the
+lab's ACK: `200` (AA/CA), `422` order refused (AE/AR), `409` cancellation refused, `502` the lab did not answer, `503` no
+lab configured, `400` not an order. A `200` carries a transaction-response with one entry per Patient, Practitioner and
+ServiceRequest, **no `location`** (the lab's ACK has no order id), so ClinicHub keeps no external id. The lab's result
+comes back as flow in phase 4 (ORU^R01, flow 3's Bundle).
+
 ## Retry behaviour already in the senders
 
 Every sender has an outbox: 10 s, 20 s, 40 s… up to 30 min, *Not delivered* after 12 tries, manual *Try again now*.
@@ -197,3 +206,7 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
     app return the label on its results?
 24. The hub's pseudonym move on a merge needs ClinicHub's MRN system to be `hub.events.mrn-system` (flow 6 uses
     `urn:clinichub:{clinic}:mrn`, as an order's Patient does).
+25. Orders to an external lab (phase 7): ClinicHub's placer number is `{order id}^{clinic slug}` in ORC-2/OBR-2 and the
+    lab has to quote it back in its result (question 16). The hub sends the patient's name, birth date, sex, MRN and
+    health card number and the orderer's CPSO number to the lab in the ORM^O01; that is the purpose of the message, and
+    the hub neither stores nor logs it. Whether a given lab accepts that profile is not known.

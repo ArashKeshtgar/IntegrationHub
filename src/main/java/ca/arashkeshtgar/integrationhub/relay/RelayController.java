@@ -1,6 +1,7 @@
 package ca.arashkeshtgar.integrationhub.relay;
 
 import ca.arashkeshtgar.integrationhub.events.EventFactory;
+import ca.arashkeshtgar.integrationhub.hl7.Hl7Orders;
 import ca.arashkeshtgar.integrationhub.hl7.Hl7Outbound;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -70,6 +71,7 @@ public class RelayController {
   private final EventFactory eventFactory;
   private final MeterRegistry meters;
   private final Hl7Outbound hl7Outbound;
+  private final Hl7Orders hl7Orders;
   private final Map<String, HttpClient> clients = new ConcurrentHashMap<>();
 
   public RelayController(
@@ -78,13 +80,15 @@ public class RelayController {
       MessageLog messages,
       EventFactory eventFactory,
       MeterRegistry meters,
-      ObjectProvider<Hl7Outbound> hl7Outbound) {
+      ObjectProvider<Hl7Outbound> hl7Outbound,
+      Hl7Orders hl7Orders) {
     this.properties = properties;
     this.tokens = tokens;
     this.messages = messages;
     this.eventFactory = eventFactory;
     this.meters = meters;
     this.hl7Outbound = hl7Outbound.getIfAvailable();
+    this.hl7Orders = hl7Orders;
   }
 
   @RequestMapping("/route/{route}/**")
@@ -161,6 +165,11 @@ public class RelayController {
     call.queryIdentifier(queryIdentifier);
     summary = queryIdentifier.map(summary::withIdentifier).orElse(summary);
     call.body(body, sha256(body), summary);
+
+    if (route.hl7Order()) {
+      sendHl7Order(response, call, started, body);
+      return;
+    }
 
     URI target;
     try {
@@ -256,6 +265,88 @@ public class RelayController {
       error = "answer-interrupted";
     }
     finish(call, started, answer.statusCode(), answer.statusCode(), error);
+  }
+
+  /**
+   * A route for an external laboratory: the order Bundle is sent as an ORM^O01 and the lab's ACK is
+   * the answer. 200 when the lab took it; 409 for a cancellation and 422 for an order the lab
+   * refused (ClinicHub treats 409 as an answer and 422 as a failure to retry); 502 when the lab did
+   * not answer; 503 when no lab is set up; 400 when the body cannot be an order.
+   */
+  private void sendHl7Order(
+      HttpServletResponse response, CallContext call, long started, byte[] body)
+      throws IOException {
+    if (body.length == 0) {
+      refuse(response, call, started, 400, "invalid", "The body is empty.", "empty-body");
+      return;
+    }
+    Hl7Orders.Result result = hl7Orders.send(call.id(), body);
+    switch (result.outcome()) {
+      case ACCEPTED -> {
+        StringBuilder entries = new StringBuilder();
+        // Like ClinicHub's other order targets: the Patient and the Practitioner first, then one
+        // entry per order. The lab's ACK carries no order id of its own, so there is no location.
+        int count = result.cancel() ? 0 : 2;
+        for (int i = 0; i < count; i++) {
+          entries.append("{\"response\":{\"status\":\"200 OK\"}},");
+        }
+        for (int i = 0; i < result.serviceRequests(); i++) {
+          entries.append(
+              result.cancel()
+                  ? "{\"response\":{\"status\":\"200 OK\"}},"
+                  : "{\"response\":{\"status\":\"201 Created\"}},");
+        }
+        if (entries.length() > 0) {
+          entries.setLength(entries.length() - 1);
+        }
+        response.setStatus(200);
+        response.setContentType("application/fhir+json");
+        response
+            .getOutputStream()
+            .write(
+                ("{\"resourceType\":\"Bundle\",\"type\":\"transaction-response\",\"entry\":["
+                        + entries
+                        + "]}")
+                    .getBytes(StandardCharsets.UTF_8));
+        finish(call, started, 200, 200, null);
+      }
+      case REFUSED ->
+          refuse(
+              response,
+              call,
+              started,
+              result.cancel() ? 409 : 422,
+              "processing",
+              "The laboratory refused the " + (result.cancel() ? "cancellation." : "order."),
+              "lab-" + result.reason());
+      case UNAVAILABLE ->
+          refuse(
+              response,
+              call,
+              started,
+              502,
+              "transient",
+              "The laboratory did not accept the message.",
+              result.reason());
+      case NOT_CONFIGURED ->
+          refuse(
+              response,
+              call,
+              started,
+              503,
+              "transient",
+              "No laboratory is set up for this route.",
+              result.reason());
+      case INVALID ->
+          refuse(
+              response,
+              call,
+              started,
+              400,
+              "invalid",
+              "The body is not an order for a laboratory.",
+              "invalid-order: " + result.reason());
+    }
   }
 
   private static BodySummary summarise(HubProperties.Route route, byte[] body) {

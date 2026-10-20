@@ -27,7 +27,8 @@ public record Hl7Properties(
     @DefaultValue("14") @Positive int retentionDays,
     @DefaultValue("7") @PositiveOrZero int replayWindowDays,
     @DefaultValue ClinicHub clinichub,
-    @DefaultValue Outbound outbound) {
+    @DefaultValue Outbound outbound,
+    @DefaultValue Lab lab) {
 
   /** {@code port} 0 picks a free port (tests). No TLS: see docs/architecture.md. */
   public record Mllp(
@@ -62,6 +63,25 @@ public record Hl7Properties(
       @DefaultValue("OLIS") String receivingApplication,
       @DefaultValue("OLIS") String receivingFacility,
       @DefaultValue("10s") Duration timeout) {}
+
+  /**
+   * The external laboratory that takes orders as ORM^O01 over MLLP (the route with {@code
+   * hl7-order: true}). {@code host} empty = the route answers 503. Needs no queue: ClinicHub's
+   * outbox retries.
+   */
+  public record Lab(
+      String host,
+      @DefaultValue("2577") int port,
+      @DefaultValue("INTEGRATIONHUB") String sendingApplication,
+      @DefaultValue("HUB") String sendingFacility,
+      @DefaultValue("EXTLAB") String receivingApplication,
+      @DefaultValue("LAB1") String receivingFacility,
+      @DefaultValue("10s") Duration timeout) {
+
+    public boolean configured() {
+      return host != null && !host.isBlank();
+    }
+  }
 
   public Hl7Properties {
     if (enabled) {

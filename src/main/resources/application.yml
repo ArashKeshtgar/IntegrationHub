@@ -71,6 +71,11 @@ hub:
       client-id: integrationhub
       client-secret: ${HUB_CLINICHUB_CLIENT_SECRET:}
       scope: results
+    # The external laboratory that takes ClinicHub's orders as ORM^O01 (route "externallab", docs/architecture.md, phase 7).
+    # Empty host = that route answers 503. Not affected by "enabled": it needs no queue.
+    lab:
+      host: ${HUB_HL7_LAB_HOST:}
+      port: ${HUB_HL7_LAB_PORT:2577}
     outbound:
       enabled: ${HUB_HL7_OUTBOUND_ENABLED:false}
       host: ${HUB_HL7_OUTBOUND_HOST:}
@@ -122,6 +127,13 @@ hub:
       allowed-audiences: [pharmaflow]
       required-scopes: [prescriptions]
       allowed-methods: [POST]
+    # Orders and cancels for an external laboratory, from ClinicHub: /route/externallab/fhir. No HTTP upstream: the hub
+    # turns the order Bundle into an ORM^O01 and sends it over MLLP to hub.hl7.lab (phase 7).
+    externallab:
+      hl7-order: true
+      allowed-audiences: [externallab]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
     # Financial documents from every application: /route/finance/api/integration/documents
     finance:
       upstream: ${HUB_ROUTE_FINANCE_UPSTREAM:http://localhost:5400}

@@ -50,10 +50,12 @@ public record HubProperties(
    * of {@code allowedPaths} and whose method is in {@code allowedMethods} are relayed. {@code
    * forwardHeaders} are passed on besides the usual ones. {@code apiKeyHeader}, when set, lets a
    * call with no {@code Authorization} but that header through to the upstream, which decides
-   * (FinancePowerApp's development {@code X-Finance-Key}); leave it empty elsewhere.
+   * (FinancePowerApp's development {@code X-Finance-Key}); leave it empty elsewhere. {@code
+   * hl7Order} makes the route answer for an external laboratory itself: the order Bundle is turned
+   * into an ORM^O01 and sent over MLLP to {@code hub.hl7.lab}; there is no HTTP upstream.
    */
   public record Route(
-      @NotBlank String upstream,
+      String upstream,
       @DefaultValue("30s") Duration timeout,
       @DefaultValue("5s") Duration connectTimeout,
       @DefaultValue List<String> allowedAudiences,
@@ -62,17 +64,25 @@ public record HubProperties(
       @DefaultValue("POST") List<String> allowedMethods,
       @DefaultValue("FHIR") BodyFormat bodyFormat,
       @DefaultValue List<String> forwardHeaders,
-      String apiKeyHeader) {
+      String apiKeyHeader,
+      @DefaultValue("false") boolean hl7Order) {
 
     private static final Set<String> METHODS = Set.of("GET", "POST", "PUT", "DELETE");
 
     public Route {
-      URI uri = URI.create(upstream.trim());
-      if (uri.getHost() == null
-          || !("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))) {
-        throw new IllegalArgumentException("hub.routes.*.upstream must be an http(s) URL");
+      if (hl7Order) {
+        upstream = null;
+      } else {
+        if (upstream == null || upstream.isBlank()) {
+          throw new IllegalArgumentException("hub.routes.*.upstream is required");
+        }
+        URI uri = URI.create(upstream.trim());
+        if (uri.getHost() == null
+            || !("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))) {
+          throw new IllegalArgumentException("hub.routes.*.upstream must be an http(s) URL");
+        }
+        upstream = upstream.trim().replaceAll("/+$", "");
       }
-      upstream = upstream.trim().replaceAll("/+$", "");
       allowedPaths = allowedPaths.stream().map(p -> p.trim().replaceAll("/+$", "")).toList();
       if (allowedPaths.isEmpty() || allowedPaths.stream().anyMatch(p -> !p.startsWith("/"))) {
         throw new IllegalArgumentException("hub.routes.*.allowed-paths must start with /");

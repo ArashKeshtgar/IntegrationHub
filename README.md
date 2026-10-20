@@ -83,5 +83,6 @@ A person needs the ClinicHub permission *See the message log* (Administrator has
 - [x] Phase 4 — HL7 v2 in (external lab ORU over MLLP) and out (OLIS simulation) — hub done; no TLS on the listener, not tried with a real lab or OLIS; seen end to end with ClinicHub's `integrationhub` client and external-lab order target (synthetic message sent by hand), see the phase in docs/architecture.md
 - [x] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags — hub done (contracts, route `pharmaflow`, log, pseudonym on merges); e-prescriptions seen end to end with ClinicHub and PharmaFlow; no application sends or reads merges or labels yet, see the phase in docs/architecture.md
 - [x] Phase 6 — admin web with ClinicHub sign-in (`web/`, :5701), route health, message timeline, replay of HL7 dead letters, alerts to the log and a webhook, platform compose — no payload viewer, no e-mail alerts, replay only for HL7; see the phase in docs/architecture.md
+- [x] Phase 7 — orders to an external lab: ClinicHub's order Bundle becomes an HL7 ORM^O01 over MLLP (route `externallab`, `HUB_HL7_LAB_HOST`), the lab's ACK is the answer — hub and ClinicHub done; seen with `tools/olis-sim` as the lab, not with a real lab, no TLS, see the phase in docs/architecture.md
 
 All data in tests and samples is synthetic.
