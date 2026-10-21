@@ -77,9 +77,9 @@ A person needs the ClinicHub permission *See the message log* (Administrator has
 ## Status
 
 - [x] Phase 0 — skeleton, CI, Docker
-- [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — hub done and seen with LabFlow (`ClinicHub:ResultsUrl`); ClinicReport's setting is still to be changed, see the phase in docs/architecture.md
-- [x] Phase 2 — orders, cancels, financial documents — hub done and seen with ClinicHub and LabFlow (`Integrations:LabFlow:FhirBaseUrl`); the other senders' settings are still to be changed, see the phase in docs/architecture.md
-- [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search
+- [x] Phase 1 — results relay (LabFlow, ClinicReport → ClinicHub) — seen with both (`ClinicHub:ResultsUrl`, their `via-hub` profiles)
+- [x] Phase 2 — orders, cancels, financial documents — seen with all five applications through their `via-hub` profiles, a refused cancel (409) included
+- [x] Phase 3 — de-identified event feed to [Analytics](https://github.com/ArashKeshtgar/Analytics), metrics, search — seen from the real applications into Analytics' warehouse
 - [x] Phase 4 — HL7 v2 in (external lab ORU over MLLP) and out (OLIS simulation) — hub done; no TLS on the listener, not tried with a real lab or OLIS; seen end to end with ClinicHub's `integrationhub` client and external-lab order target (synthetic message sent by hand), see the phase in docs/architecture.md
 - [x] Phase 5 — e-prescriptions to PharmaFlow, patient merges, consent flags — hub done (contracts, route `pharmaflow`, log, pseudonym on merges); e-prescriptions seen end to end with ClinicHub and PharmaFlow; no application sends or reads merges or labels yet, see the phase in docs/architecture.md
 - [x] Phase 6 — admin web with ClinicHub sign-in (`web/`, :5701), route health, message timeline, replay of HL7 dead letters, alerts to the log and a webhook, platform compose — no payload viewer, no e-mail alerts, replay only for HL7; see the phase in docs/architecture.md

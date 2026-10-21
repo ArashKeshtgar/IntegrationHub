@@ -5,3 +5,7 @@ hub:
     local-access: true
     # The admin web (web/, npm run dev).
     cors-origins: http://localhost:5701
+  routes:
+    finance:
+      # FinancePowerApp takes a development key instead of a token (contracts.md, question 9); PharmaFlow sends only that.
+      api-key-header: X-Finance-Key

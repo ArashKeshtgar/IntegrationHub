@@ -49,9 +49,9 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | Phase | What | Status |
 |---|---|---|
 | 0 | Skeleton: build, health, CI, Docker, local compose | **Done** |
-| 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done** in the hub; the two sender settings below are still to be changed |
-| 2 | Orders, cancels and financial documents through the hub | **Done** in the hub; the senders' settings are still to be changed |
-| 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done** in the hub; not yet tried with the real applications |
+| 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done**; seen with the real LabFlow, ClinicReport and ClinicHub (`via-hub` profiles, 21 Oct 2026) |
+| 2 | Orders, cancels and financial documents through the hub | **Done**; seen with all five applications (21 Oct 2026), ClinicReport's finance documents excepted (none was owed) |
+| 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done**; seen from the real applications into Analytics' warehouse (21 Oct 2026) |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels are sent or read by no application yet |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); no payload viewer, no e-mail alerts, replay only for HL7 |
@@ -131,21 +131,18 @@ through the hub, and the log shows both.
 - Anything other than `POST` and `/fhir`: phase 2 (done).
 - Seen with the real LabFlow and ClinicHub (2026-10-18, a developer machine): two released LabFlow results went
   through the `clinichub` route with LabFlow's own token, ClinicHub answered 200 and completed the orders, and the hub
-  made their `result.final` events. Not yet seen with ClinicReport.
+  made their `result.final` events.
+- **Seen with ClinicReport too (21 Oct 2026):** an ECG ordered in ClinicHub, reported and signed in ClinicReport, came
+  back through the `clinichub` route (200) and showed as a final result on the visit; a LabFlow CBC and creatinine the
+  same way. ClinicHub, LabFlow and ClinicReport each ran their `via-hub` profile, the hub ran in ControlPanel's compose.
 
-**Other repositories — to do locally, not done:**
+**Other repositories — done (21 Oct 2026):**
 
-1. **LabFlow: done** — it had no such setting (results went to its OIDC `Authority` + `fhir`, the same setting as
-   sign-in), so it got one: `ClinicHub:ResultsUrl=http://localhost:5700/route/clinichub/fhir`; empty switches back.
-   The token request still goes straight to ClinicHub. ClinicReport: still to do —
-   point the setting that holds ClinicHub's FHIR address at
-   `http://localhost:5700/route/clinichub` (they then post to `…/route/clinichub/fhir`). I do not know the setting
-   names; look for where `POST {clinichub}/fhir` is built. Write in each README how to switch back (the old value).
-   **Check first** that the token request (`/connect/token`, issuer `http://localhost:5301/`) does not use the same
-   setting: it must still go straight to ClinicHub, the hub does not relay it.
-2. Confirm the open questions in [contracts.md](contracts.md#open-questions-for-the-hub) against a real token (copy the
-   payload of one result token, without the signature, into a comment there).
-3. ClinicHub: nothing yet. The `integrationhub` client is first needed in phase 4.
+1. **LabFlow** got `ClinicHub:ResultsUrl` (empty: ClinicHub's own `/fhir`), **ClinicReport** the same setting and
+   `ClinicHubOptions.ResultsEndpoint()` with its tests. The token request still goes straight to ClinicHub in both.
+   Each has a `via-hub` launch profile and says in its README how to switch back (`connected`).
+2. The open questions in contracts.md: 9 and 11 answered; the rest stand as written there.
+3. ClinicHub: the `integrationhub` client exists (phase 4).
 
 
 ### Phase 2 — Orders, cancels, finance
@@ -188,22 +185,30 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 
 **Not built / not known:**
 
-- Whether FinancePowerApp accepts `X-Finance-Key` **instead of** a token or only besides one (contracts.md, question 9).
-  Until known the key-only mode is off.
+- `X-Finance-Key` is accepted by FinancePowerApp **instead of** a token in Development (contracts.md, question 9), so
+  the `dev` profile and ControlPanel's compose set `api-key-header: X-Finance-Key`; elsewhere it stays off.
 - The order's transaction-response is not read, so the ids ClinicHub stores are not in the log.
 - `Expect: 100-continue`, `HEAD`, `OPTIONS`: not relayed.
-- Not seen working with the real ClinicHub, LabFlow, ClinicReport, PharmaFlow and FinancePowerApp.
+- **Seen with the real applications (21 Oct 2026, hub in ControlPanel's compose, the others on the host with their
+  `via-hub` profiles):** ClinicHub's orders to LabFlow and ClinicReport (200 each); a cancel LabFlow accepted (200, the
+  order shows *Cancelled* with the reason) and one it refused (409, ClinicHub shows "LabFlow did not cancel: Results
+  have been entered…", the lab's own words); a prescription to PharmaFlow (200); finance documents from ClinicHub (a
+  signed visit's claim, token) and LabFlow (token), and PharmaFlow's key-only path (an already-delivered document sent
+  again with `X-Finance-Key`: 200, recognised as a duplicate, nothing new in the books). **Not seen:** a finance
+  document from ClinicReport (the ECG template has no OHIP fees, so signing owed nothing), and PharmaFlow's own feed
+  sending a new document through the hub (nothing new to send).
+- Found on the way, in FinancePowerApp, not the hub: a body that is not JSON gets `500` from
+  `/api/integration/documents`, where `400` was expected.
 
-**Other repositories — to do locally, not done:**
+**Other repositories — done (21 Oct 2026):**
 
-1. ClinicHub: `Integrations:LabFlow:FhirBaseUrl`, `Integrations:ClinicReport:FhirBaseUrl` → `http://localhost:5700/route/labflow/fhir`
-   and `…/route/clinicreport/fhir` **if the setting holds the full FHIR base (ending in `/fhir`)**, or without `/fhir` if
-   ClinicHub appends it; the hub only relays paths that start with `/fhir`. `Integrations:Finance:BaseUrl` →
-   `http://localhost:5700/route/finance`. Check how ClinicHub builds the cancel URL from the same setting.
-2. LabFlow, ClinicReport, PharmaFlow: their finance base URL → `http://localhost:5700/route/finance`.
-3. In each a development profile `via-hub` (or the equivalent), so the direct setup stays the default; write in the
-   README how to switch back.
-4. Confirm questions 8–12 in [contracts.md](contracts.md#open-questions-for-the-hub) with real tokens and requests.
+1. ClinicHub: a `via-hub` launch profile sets `Integrations:{LabFlow,ClinicReport,PharmaFlow,ExternalLab}:FhirBaseUrl`
+   to `http://localhost:5700/route/{name}/fhir` (the settings hold the full base; cancels are POSTed to the same
+   address) and `Integrations:Finance:BaseUrl` to `http://localhost:5700/route/finance`.
+2. LabFlow, ClinicReport, PharmaFlow: `via-hub` profiles with their finance base URL on the hub's `finance` route
+   (LabFlow and ClinicReport also their results).
+3. Each README says how to switch back (the `http` / `connected` profile).
+4. Questions 9 and 11 answered in contracts.md.
 
 ### Phase 3 — Event feed, metrics, search
 
@@ -262,23 +267,22 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 
 **Not built / not known:**
 
-- The ClinicHub client `integrationhub` and its permissions do not exist yet (phase 4 / 6), so today a token for the
-  log has to be signed by ClinicHub with the permission added by hand; the dev profile is the practical way.
-- No consumer (Analytics phase 4) and no dashboards or alert rules for the metrics.
-- No free-text search, no total count, no web page (phase 6). `hub.payloads.store` still not built.
-- Not tried with the real applications' order Bundles: the MRN system and the identifier on the ServiceRequest are
-  assumptions (contracts.md, questions 13–15). If the MRN is not found the event is still made, with no pseudonym.
+- No dashboards or alert rules for the metrics.
+- No free-text search, no total count (phase 6 added the web page). `hub.payloads.store` still not built.
+- **Seen with the real applications (21 Oct 2026):** the orders, results and cancel above made `order.placed`,
+  `order.accepted`, `result.final` and `order.cancelled` events for LabFlow and ClinicReport; Analytics' consumer
+  (ControlPanel, `--profile events`, its own RabbitMQ account) took them and its next run built them into
+  `fact_order`. Every event of that day carries a pseudonym, so ClinicHub's MRN system is the one assumed
+  (`urn:clinichub:{clinic}:mrn`, contracts.md question 13).
 
-**Other repositories — to do locally, not done:**
+**Other repositories — done:**
 
-1. ClinicHub: confirm the identifier system of the MRN on the Patient in an order Bundle and the identifier on each
-   ServiceRequest; if the MRN's system is not `urn:clinichub:{clinic}:mrn`, set `HUB_EVENTS_MRN_SYSTEM` (or
-   `hub.events.mrn-system`).
-2. ClinicHub: register the client `integrationhub` and the permission `integrationhub:messages.view` (the other
-   phase 6 permissions can wait).
-3. Choose and keep the pseudonym secret (`HUB_EVENTS_PSEUDONYM_SECRET`, 32+ characters). **Changing it changes every
-   pseudonym**, so the same patient becomes a new one in Analytics.
-4. Analytics (its phase 4): declare the queue as in events.md and ignore repeated `eventId`s.
+1. ClinicHub: the MRN system is as assumed (above); the `integrationhub` client and its permissions exist (phase 4/6).
+2. The pseudonym secret for ControlPanel is in its `.env` (`INTEGRATIONHUB_EVENTS_PSEUDONYM_SECRET`, made 21 Oct 2026).
+   **Changing it changes every pseudonym**, so the same patient becomes a new one in Analytics.
+3. RabbitMQ accounts `integrationhub` and `analytics` (ControlPanel `.env.example` has the commands; `guest` cannot
+   be used from another container).
+4. Analytics declares the queue as in events.md and ignores repeated `eventId`s (its phase 4).
 
 ### Phase 4 — HL7 v2
 

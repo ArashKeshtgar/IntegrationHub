@@ -171,11 +171,15 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
 7. `iss` is exactly `http://localhost:5301/` (trailing slash) and the keys are at `…/.well-known/jwks`.
 8. Order tokens (phase 2): ClinicHub signs them itself with `aud` = `labflow` / `clinicreport` and scope `orders`
    (contracts above). If a ClinicHub-signed token has no `client_id` the log shows `azp` or `sub` as the sender.
-9. `X-Finance-Key` in development: is it accepted **instead of** a token (then set
-   `HUB_ROUTE_FINANCE_API_KEY_HEADER=X-Finance-Key` for development) or besides one? Which applications send which?
+9. **Answered (FinancePowerApp `AuthSetup.DocumentSourceAsync`, 2026-10-21):** `X-Finance-Key` is accepted **instead
+   of** a token, in Development only, and only when the call has no `Bearer` header; a call with a token is judged by
+   the token alone. ClinicHub, LabFlow and ClinicReport send a token; PharmaFlow sends only the key
+   (`Finance:DevKey`). The `dev` profile therefore sets `hub.routes.finance.api-key-header: X-Finance-Key`.
 10. Finance tokens from the other applications (client credentials): `aud` = `finance`, scope `finance`, as written
     above; the finance route requires both.
-11. Does the sender's FHIR base setting end in `/fhir`? The hub relays only `/route/{app}/fhir…`.
+11. **Answered:** yes. ClinicHub's `Integrations:*:FhirBaseUrl` hold the full base ending in `/fhir` and are posted to
+    as they are (cancels too: a Bundle POSTed to the same address); LabFlow's and ClinicReport's `ResultsUrl` likewise.
+    The finance settings hold the base without a path, and the senders append `/api/integration/documents`.
 12. How does the .NET client write the cancel's query (`|` raw or `%7C`; `:` raw or `%3A`)? Both are relayed; the
     log understands both.
 13. Order Bundle (phase 3): the Patient's MRN is an identifier with system `urn:clinichub:{clinic}:mrn`. If it is
