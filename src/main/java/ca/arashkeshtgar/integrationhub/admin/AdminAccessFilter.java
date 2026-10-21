@@ -86,7 +86,7 @@ public class AdminAccessFilter extends OncePerRequestFilter {
           response,
           403,
           replaying
-              ? "No permission to replay messages."
+              ? "No permission to change the hub (replay, code map)."
               : "No permission to read the message log.");
       return;
     }

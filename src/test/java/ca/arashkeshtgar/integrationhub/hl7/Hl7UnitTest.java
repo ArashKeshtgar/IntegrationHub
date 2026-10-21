@@ -25,7 +25,8 @@ class Hl7UnitTest {
       boolean enabled, String queueKey, String secret, boolean outbound, String host) {
     return new Hl7Properties(
         enabled,
-        new Hl7Properties.Mllp(2575, "127.0.0.1", 1000, java.time.Duration.ofSeconds(1)),
+        new Hl7Properties.Mllp(
+            2575, "127.0.0.1", 1000, java.time.Duration.ofSeconds(1), false, "none"),
         queueKey,
         "America/Toronto",
         List.of(),
@@ -52,7 +53,8 @@ class Hl7UnitTest {
             "HUB",
             "OLIS",
             "OLIS",
-            java.time.Duration.ofSeconds(1)),
+            java.time.Duration.ofSeconds(1),
+            false),
         new Hl7Properties.Lab(
             null,
             2577,
@@ -60,7 +62,9 @@ class Hl7UnitTest {
             "HUB",
             "EXTLAB",
             "LAB1",
-            java.time.Duration.ofSeconds(1)));
+            java.time.Duration.ofSeconds(1),
+            false),
+        new Hl7Properties.Tls(null, null, null, null));
   }
 
   @Test

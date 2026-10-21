@@ -52,10 +52,11 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 1 | Results relay (LabFlow, ClinicReport → ClinicHub) with token check and message log | **Done**; seen with the real LabFlow, ClinicReport and ClinicHub (`via-hub` profiles, 21 Oct 2026) |
 | 2 | Orders, cancels and financial documents through the hub | **Done**; seen with all five applications (21 Oct 2026), ClinicReport's finance documents excepted (none was owed) |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done**; seen from the real applications into Analytics' warehouse (21 Oct 2026) |
-| 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab, OLIS or ClinicHub, and no TLS on the listener |
+| 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab or OLIS; TLS and mutual TLS since phase 8 |
 | 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels are sent or read by no application yet |
 | 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); no payload viewer, no e-mail alerts, replay only for HL7 |
-| 7 | Orders to an external lab: ClinicHub's order Bundle becomes an HL7 ORM^O01 over MLLP | **Done** in the hub and ClinicHub; seen with `tools/olis-sim` as the lab, not with a real lab; no TLS |
+| 7 | Orders to an external lab: ClinicHub's order Bundle becomes an HL7 ORM^O01 over MLLP | **Done** in the hub and ClinicHub; seen with `tools/olis-sim` as the lab, not with a real lab |
+| 8 | Closing the gaps: TLS on MLLP, the lab's test codes, the lab's order number, merges and labels in the applications, e-mail alerts | **Done**; see below for what is still not |
 
 Each phase ends with its tests green in CI, this table updated, and the README's status list updated. Changes needed
 in other repositories are listed per phase; they are made there, in their own commits, and noted here.
@@ -381,7 +382,7 @@ lab's message in ClinicHub, and a claim reaches FinancePowerApp — all through 
 
 **Not built / not known:**
 
-- **No TLS on the MLLP listener or the export.** Run them on a private network or behind a TLS terminator (stunnel,
+- ~~**No TLS on the MLLP listener or the export.**~~ (Done in phase 8.) Run them on a private network or behind a TLS terminator (stunnel,
   the load balancer). Anyone who can reach port 2575 can submit a result for any order; `allowed-senders` only checks
   what the message says about itself. Mutual TLS or an allow-list by address is needed before a real lab connects.
 - **Not tried with a real lab, a real OLIS or a real ClinicHub.** Everything was run against synthetic messages, a
@@ -600,6 +601,40 @@ Closes the loop of phase 4: a result from an external lab (ORU^R01 in) answers a
    `AwaitingResult`), as before.
 2. The lab or its interface engine: listen on the port in `HUB_HL7_LAB_PORT`, accept ORM^O01 and answer with an ACK, and
    quote ORC-2/OBR-2 in the result it sends back.
+
+### Phase 8 — Gaps closed (21 October 2026)
+
+- **TLS on MLLP** (`MllpSockets`, `hub.hl7.mllp.tls`, `hub.hl7.lab.tls`, `hub.hl7.outbound.tls`, `hub.hl7.tls.*`): the
+  listener speaks MLLP over TLS 1.2/1.3 with the key store's certificate and can ask for (`want`) or require (`need`)
+  the lab's certificate, checked against the trust store; connections the hub makes to the lab and to the OLIS-style
+  receiver check the other side's certificate and its host name against the trust store (empty: the JVM's roots) and
+  present the hub's own when asked. PKCS12 stores; passwords from the environment. A failed handshake closes the
+  connection and logs only the exception type. Tested with test-only self-signed stores in `src/test/resources/tls`:
+  both ways over mutual TLS, an untrusted server refused, an untrusted client certificate refused, a plain client to a
+  TLS listener answered with nothing, and the settings refused when inconsistent. **Not tried against a real lab's
+  certificate chain or an HL7 engine's TLS profile.**
+- **The lab's test codes** (`hl7_code_map`, V6, `LabCodes`, admin API `GET|PUT /api/admin/code-map`, the PUT needing the
+  replay permission and replacing the whole map, a bad row named and nothing saved): an order goes out with the lab's
+  code and name first and the LOINC as the alternate (`HGB^Haemoglobin^L^718-7^^LN`); a result coded only the lab's way
+  comes back with the LOINC added. A test not in the map goes as before. There is no screen for the map yet, only the API.
+- **The lab's order number is kept.** ClinicHub now stores the filler order number a result carries (the identifier the
+  hub writes from ORC-3/OBR-3) as the order's external id the first time it sees one; the ACK of an ORM carries none.
+- **Merges and confidentiality labels in the applications** (flows 6 and 7): ClinicHub sends them and labels orders and
+  prescriptions; ClinicReport, LabFlow and PharmaFlow keep the label, show it and return it on their results, and
+  follow a merge. Details and what each does in [contracts.md](contracts.md#6-patient-merges--clinichub--every-app-that-received-an-order-or-prescription-for-the-merged-record).
+  The hub needed no change: it relays both unchanged.
+- **E-mail alerts** (`AlertMailer`, `hub.alerts.mail-to`, `mail-from`, Spring's `spring.mail.*`): the facts the webhook
+  carries, never message content. A channel that fails is tried again with the next round, and so is the other, so a
+  message may arrive twice rather than not at all. Tested with a mocked mail sender; **not sent through a real SMTP server.**
+
+**Not done, and why:**
+
+- **A payload viewer and replay of relayed (FHIR) messages are not built, on purpose.** The hub stores metadata only:
+  that is its privacy design (the tests plant markers in every sample and look for them in the database and the logs).
+  A viewer needs the bodies kept, which makes the hub a store of patient data with its own retention, access and breach
+  duties; the senders' outboxes already retry and already hold what was sent. If it is wanted, it is a decision to take
+  (kept encrypted like the HL7 queues, for how long, who may open it), not a feature to add quietly.
+- Not tried with a real lab, OLIS, a real SMTP server or a real HL7 engine's TLS.
 
 ## Not in scope
 

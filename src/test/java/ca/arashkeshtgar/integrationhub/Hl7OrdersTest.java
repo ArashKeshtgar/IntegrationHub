@@ -2,6 +2,7 @@ package ca.arashkeshtgar.integrationhub;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ca.arashkeshtgar.integrationhub.hl7.LabCodes;
 import ca.arashkeshtgar.integrationhub.hl7.Mllp;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.annotation.DirtiesContext;
@@ -182,6 +184,22 @@ class Hl7OrdersTest extends RelayTestBase {
         .doesNotContain("MARKER", "Zzyzx", "Testpatient", "19000101");
     assertThat(messages()).hasSize(1);
     assertThat(messages().get(0).get("response_status")).isEqualTo(200);
+  }
+
+  @Autowired LabCodes codes;
+
+  @Test
+  void aMappedTestGoesOutInTheLabsOwnCodeWithTheLoincAsTheAlternate() throws Exception {
+    codes.replace(List.of(new LabCodes.Entry("718-7", "HGB", "Haemoglobin", null)));
+    try {
+      assertThat(postBundle("externallab", orderToken(), ORDER).statusCode()).isEqualTo(200);
+      String[] segments = LAB.received.get(0).split("\r");
+      assertThat(segments[3]).startsWith("OBR|1|101^harbourview||HGB^Haemoglobin^L^718-7^^LN|");
+      // A test the map does not name goes out as before.
+      assertThat(segments[6]).doesNotContain("^L^");
+    } finally {
+      codes.replace(List.of());
+    }
   }
 
   @Test

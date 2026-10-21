@@ -5,7 +5,6 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -19,8 +18,8 @@ import org.springframework.stereotype.Component;
 /**
  * The MLLP listener (port 2575). One virtual thread per connection; a connection may carry many
  * messages, each answered before the next is read. A connection that is idle longer than {@code
- * mllp.read-timeout} is closed. There is no TLS here: put the listener on a private network or
- * behind a TLS terminator (docs/architecture.md).
+ * mllp.read-timeout} is closed. With {@code mllp.tls} the listener speaks TLS ({@link
+ * MllpSockets}); a connection whose handshake fails is closed and logged without its content.
  */
 @Component
 @ConditionalOnProperty(name = "hub.hl7.enabled", havingValue = "true")
@@ -30,22 +29,30 @@ public class MllpServer {
 
   private final Hl7Properties.Mllp settings;
   private final Hl7Inbound inbound;
+  private final MllpSockets sockets;
   private final ExecutorService connections = Executors.newVirtualThreadPerTaskExecutor();
   private ServerSocket server;
   private Thread acceptor;
 
-  public MllpServer(Hl7Properties properties, Hl7Inbound inbound) {
+  public MllpServer(Hl7Properties properties, Hl7Inbound inbound, MllpSockets sockets) {
     this.settings = properties.mllp();
     this.inbound = inbound;
+    this.sockets = sockets;
   }
 
   @PostConstruct
   void start() throws IOException {
-    server = new ServerSocket(settings.port(), 50, InetAddress.getByName(settings.bindAddress()));
+    server =
+        sockets.listen(
+            settings.port(), settings.bindAddress(), settings.tls(), settings.clientAuth());
     acceptor = new Thread(this::acceptLoop, "mllp-acceptor");
     acceptor.setDaemon(true);
     acceptor.start();
-    log.info("MLLP listening on {}:{}", settings.bindAddress(), server.getLocalPort());
+    log.info(
+        "MLLP listening on {}:{}{}",
+        settings.bindAddress(),
+        server.getLocalPort(),
+        settings.tls() ? " (TLS)" : "");
   }
 
   /** The port actually bound (useful when configured as 0). */
@@ -88,6 +95,8 @@ public class MllpServer {
       // idle: close quietly
     } catch (Mllp.FrameException e) {
       log.warn("MLLP framing error: {}", e.getMessage());
+    } catch (javax.net.ssl.SSLException e) {
+      log.warn("MLLP TLS handshake failed: {}", e.getClass().getSimpleName());
     } catch (IOException e) {
       log.debug("MLLP connection ended: {}", e.getClass().getSimpleName());
     }

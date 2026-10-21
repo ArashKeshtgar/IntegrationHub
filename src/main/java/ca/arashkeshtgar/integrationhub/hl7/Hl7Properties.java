@@ -28,14 +28,28 @@ public record Hl7Properties(
     @DefaultValue("7") @PositiveOrZero int replayWindowDays,
     @DefaultValue ClinicHub clinichub,
     @DefaultValue Outbound outbound,
-    @DefaultValue Lab lab) {
+    @DefaultValue Lab lab,
+    @DefaultValue Tls tls) {
 
-  /** {@code port} 0 picks a free port (tests). No TLS: see docs/architecture.md. */
+  /**
+   * {@code port} 0 picks a free port (tests). {@code tls}: the listener speaks MLLP over TLS with
+   * the key store's certificate; {@code client-auth} none, want or need (the lab's certificate,
+   * checked against the trust store).
+   */
   public record Mllp(
       @DefaultValue("2575") int port,
       @DefaultValue("0.0.0.0") String bindAddress,
       @DefaultValue("1048576") @Positive int maxMessageBytes,
-      @DefaultValue("30s") Duration readTimeout) {}
+      @DefaultValue("30s") Duration readTimeout,
+      @DefaultValue("false") boolean tls,
+      @DefaultValue("none") String clientAuth) {}
+
+  /**
+   * PKCS12 stores for MLLP over TLS ({@link MllpSockets}): the hub's own key and certificate, and
+   * the certificates it trusts (empty: the JVM's trusted roots).
+   */
+  public record Tls(
+      String keyStore, String keyStorePassword, String trustStore, String trustStorePassword) {}
 
   public record Retry(
       @DefaultValue("10s") Duration initialBackoff,
@@ -62,7 +76,8 @@ public record Hl7Properties(
       @DefaultValue("HUB") String sendingFacility,
       @DefaultValue("OLIS") String receivingApplication,
       @DefaultValue("OLIS") String receivingFacility,
-      @DefaultValue("10s") Duration timeout) {}
+      @DefaultValue("10s") Duration timeout,
+      @DefaultValue("false") boolean tls) {}
 
   /**
    * The external laboratory that takes orders as ORM^O01 over MLLP (the route with {@code
@@ -76,7 +91,8 @@ public record Hl7Properties(
       @DefaultValue("HUB") String sendingFacility,
       @DefaultValue("EXTLAB") String receivingApplication,
       @DefaultValue("LAB1") String receivingFacility,
-      @DefaultValue("10s") Duration timeout) {
+      @DefaultValue("10s") Duration timeout,
+      @DefaultValue("false") boolean tls) {
 
     public boolean configured() {
       return host != null && !host.isBlank();
@@ -84,6 +100,14 @@ public record Hl7Properties(
   }
 
   public Hl7Properties {
+    require(
+        List.of("none", "want", "need").contains(mllp.clientAuth()),
+        "hub.hl7.mllp.client-auth is none, want or need");
+    if (mllp.tls() || !"none".equals(mllp.clientAuth())) {
+      require(
+          tls.keyStore() != null && !tls.keyStore().isBlank(),
+          "hub.hl7.tls.key-store is required for hub.hl7.mllp.tls");
+    }
     if (enabled) {
       require(
           queueKey != null && decodeKey(queueKey) != null,

@@ -3,6 +3,8 @@ package ca.arashkeshtgar.integrationhub.hl7;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.hl7.fhir.r4.model.Bundle;
@@ -39,9 +41,20 @@ public final class FhirToOrm {
   public record Message(String text, String controlId, List<String> orders, boolean cancel) {}
 
   private final Hl7Properties.Lab settings;
+  private final Function<String, Optional<LabCodes.Entry>> codes;
 
   public FhirToOrm(Hl7Properties.Lab settings) {
+    this(settings, loinc -> Optional.empty());
+  }
+
+  /**
+   * {@code codes}: the lab's own code for a LOINC ({@link LabCodes}). A mapped test goes out as
+   * {@code labCode^labName^L^loinc^name^LN} (the LOINC as the alternate identifier), an unmapped
+   * one as before.
+   */
+  public FhirToOrm(Hl7Properties.Lab settings, Function<String, Optional<LabCodes.Entry>> codes) {
     this.settings = settings;
+    this.codes = codes;
   }
 
   public Message convert(Bundle bundle, String callId, Instant now) throws Hl7Exception {
@@ -175,14 +188,27 @@ public final class FhirToOrm {
         + (id.isEmpty() ? "" : "^^^^^^CPSO");
   }
 
-  private static String coded(ServiceRequest r) throws Hl7Exception {
+  private String coded(ServiceRequest r) throws Hl7Exception {
     var coding = r.getCode().getCodingFirstRep();
     if (!coding.hasCode()) {
       throw new Hl7Exception("missing code");
     }
     String display = coding.hasDisplay() ? coding.getDisplay() : r.getCode().getText();
     String system = Hl7Tables.nameOfSystem(coding.getSystem()).orElse("L");
-    return esc(coding.getCode()) + "^" + esc(display) + "^" + system;
+    String own = esc(coding.getCode()) + "^" + esc(display) + "^" + system;
+    if (!"LN".equals(system)) {
+      return own;
+    }
+    return codes
+        .apply(coding.getCode())
+        .map(
+            m ->
+                esc(m.labCode())
+                    + "^"
+                    + esc(m.labDisplay() != null ? m.labDisplay() : display)
+                    + "^L^"
+                    + own)
+        .orElse(own);
   }
 
   private static String priority(ServiceRequest r) {

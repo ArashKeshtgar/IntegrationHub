@@ -50,6 +50,7 @@ public class AlertMonitor {
   private final JdbcTemplate jdbc;
   private final ObjectMapper json;
   private final MeterRegistry meters;
+  private final AlertMailer mailer;
   private final HttpClient http = HttpClient.newHttpClient();
   private final ScheduledExecutorService scheduler =
       Executors.newSingleThreadScheduledExecutor(
@@ -66,7 +67,9 @@ public class AlertMonitor {
       Hl7Properties hl7,
       JdbcTemplate jdbc,
       ObjectMapper json,
-      MeterRegistry meters) {
+      MeterRegistry meters,
+      AlertMailer mailer) {
+    this.mailer = mailer;
     this.properties = properties;
     this.routes = routes;
     this.alerts = alerts;
@@ -178,8 +181,25 @@ public class AlertMonitor {
             + " where resolved_at is not null and notified_at is null");
   }
 
-  /** True when there is nothing to send to or the webhook took it. */
+  /**
+   * True when there is nothing to send to, or every channel that is set took it. A channel that
+   * fails is tried again with the next round, and so is the other one (a message may arrive twice
+   * rather than not at all).
+   */
   private boolean tell(Map<String, Object> row, String state, Object resolvedAt) {
+    boolean webhook = tellWebhook(row, state, resolvedAt);
+    boolean mail =
+        !properties.hasMail()
+            || mailer.send(
+                state,
+                String.valueOf(row.get("kind")),
+                String.valueOf(row.get("subject")),
+                String.valueOf(row.get("detail")),
+                instant(row.get("opened_at")));
+    return webhook && mail;
+  }
+
+  private boolean tellWebhook(Map<String, Object> row, String state, Object resolvedAt) {
     if (!properties.hasWebhook()) {
       return true;
     }

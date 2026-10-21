@@ -4,7 +4,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -41,12 +40,19 @@ public class Hl7OutboundWorker {
             return t;
           });
 
+  private final MllpSockets sockets;
+
   public Hl7OutboundWorker(
-      Hl7Properties properties, JdbcTemplate jdbc, PayloadCipher cipher, MeterRegistry meters) {
+      Hl7Properties properties,
+      JdbcTemplate jdbc,
+      PayloadCipher cipher,
+      MeterRegistry meters,
+      MllpSockets sockets) {
     this.properties = properties;
     this.jdbc = jdbc;
     this.cipher = cipher;
     this.meters = meters;
+    this.sockets = sockets;
   }
 
   @PostConstruct
@@ -141,10 +147,7 @@ public class Hl7OutboundWorker {
   /** Null when the receiver answered AA, otherwise a fixed reason. */
   String deliver(byte[] message) {
     Hl7Properties.Outbound out = properties.outbound();
-    int timeout = (int) out.timeout().toMillis();
-    try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(out.host(), out.port()), timeout);
-      socket.setSoTimeout(timeout);
+    try (Socket socket = sockets.connect(out.host(), out.port(), out.timeout(), out.tls())) {
       Mllp.write(socket.getOutputStream(), message);
       byte[] ack = Mllp.read(socket.getInputStream(), properties.mllp().maxMessageBytes());
       if (ack == null) {

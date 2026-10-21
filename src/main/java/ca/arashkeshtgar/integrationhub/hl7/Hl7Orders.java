@@ -4,7 +4,6 @@ import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.parser.LenientErrorHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -40,10 +39,15 @@ public class Hl7Orders {
 
   private final Hl7Properties properties;
   private final MeterRegistry meters;
+  private final MllpSockets sockets;
+  private final LabCodes codes;
 
-  public Hl7Orders(Hl7Properties properties, MeterRegistry meters) {
+  public Hl7Orders(
+      Hl7Properties properties, MeterRegistry meters, MllpSockets sockets, LabCodes codes) {
     this.properties = properties;
     this.meters = meters;
+    this.sockets = sockets;
+    this.codes = codes;
   }
 
   public Result send(UUID callId, byte[] body) {
@@ -59,7 +63,8 @@ public class Hl7Orders {
       if (!(resource instanceof Bundle bundle)) {
         return count(new Result(Outcome.INVALID, "not-a-bundle", List.of(), false, 0));
       }
-      message = new FhirToOrm(lab).convert(bundle, callId.toString(), Instant.now());
+      message =
+          new FhirToOrm(lab, codes::forLoinc).convert(bundle, callId.toString(), Instant.now());
     } catch (Hl7Exception e) {
       return count(new Result(Outcome.INVALID, e.getMessage(), List.of(), false, 0));
     } catch (RuntimeException e) {
@@ -81,10 +86,7 @@ public class Hl7Orders {
 
   /** Null when the lab answered AA or CA, otherwise a fixed reason. */
   private String deliver(Hl7Properties.Lab lab, byte[] message) {
-    int timeout = (int) lab.timeout().toMillis();
-    try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(lab.host(), lab.port()), timeout);
-      socket.setSoTimeout(timeout);
+    try (Socket socket = sockets.connect(lab.host(), lab.port(), lab.timeout(), lab.tls())) {
       Mllp.write(socket.getOutputStream(), message);
       byte[] ack = Mllp.read(socket.getInputStream(), properties.mllp().maxMessageBytes());
       if (ack == null) {

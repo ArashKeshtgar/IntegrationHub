@@ -65,6 +65,15 @@ hub:
     mllp:
       port: ${HUB_HL7_MLLP_PORT:2575}
       bind-address: ${HUB_HL7_MLLP_BIND:0.0.0.0}
+      # MLLP over TLS with tls.key-store's certificate; client-auth none, want or need (the lab's certificate).
+      tls: ${HUB_HL7_MLLP_TLS:false}
+      client-auth: ${HUB_HL7_MLLP_CLIENT_AUTH:none}
+    # PKCS12 stores for MLLP over TLS: the hub's key and certificate, and what it trusts (empty = the JVM's roots).
+    tls:
+      key-store: ${HUB_HL7_TLS_KEY_STORE:}
+      key-store-password: ${HUB_HL7_TLS_KEY_STORE_PASSWORD:}
+      trust-store: ${HUB_HL7_TLS_TRUST_STORE:}
+      trust-store-password: ${HUB_HL7_TLS_TRUST_STORE_PASSWORD:}
     clinichub:
       token-url: ${HUB_CLINICHUB_TOKEN_URL:${HUB_AUTH_ISSUER:http://localhost:5301/}connect/token}
       fhir-url: ${HUB_CLINICHUB_FHIR_URL:${HUB_ROUTE_CLINICHUB_UPSTREAM:http://localhost:5300}/fhir}
@@ -76,10 +85,12 @@ hub:
     lab:
       host: ${HUB_HL7_LAB_HOST:}
       port: ${HUB_HL7_LAB_PORT:2577}
+      tls: ${HUB_HL7_LAB_TLS:false}
     outbound:
       enabled: ${HUB_HL7_OUTBOUND_ENABLED:false}
       host: ${HUB_HL7_OUTBOUND_HOST:}
       port: ${HUB_HL7_OUTBOUND_PORT:2576}
+      tls: ${HUB_HL7_OUTBOUND_TLS:false}
   admin:
     # Reading the message log and metrics: a ClinicHub token with this permission.
     permission: integrationhub:messages.view
@@ -98,6 +109,10 @@ hub:
     route-down-min-failures: ${HUB_ALERTS_ROUTE_DOWN_MIN_FAILURES:3}
     # Optional: POST {kind, subject, state, times, detail} here when an alert opens or resolves. No content.
     webhook-url: ${HUB_ALERTS_WEBHOOK_URL:}
+    # Optional e-mail of the same alerts (no message content): recipients, comma separated, and the sender. The server
+    # is spring.mail.* (SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD).
+    mail-to: ${HUB_ALERTS_MAIL_TO:}
+    mail-from: ${HUB_ALERTS_MAIL_FROM:integrationhub@localhost}
   auth:
     # ClinicHub (OpenIddict). Keys are read from {issuer}.well-known/jwks unless jwks-uri is set.
     issuer: ${HUB_AUTH_ISSUER:http://localhost:5301/}

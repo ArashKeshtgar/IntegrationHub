@@ -509,4 +509,50 @@ class AdminOperationsTest extends RelayTestBase {
     }
     return null;
   }
+
+  // ---- the lab's test codes -------------------------------------------------------------------
+
+  HttpResponse<String> put(String path, String bearer, String body) throws Exception {
+    return HTTP.send(
+        HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+            .header("Authorization", "Bearer " + bearer)
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  @Test
+  void theCodeMapIsReadWithViewAndReplacedOnlyWithTheReplayPermission() throws Exception {
+    String map =
+        "{\"items\":[{\"loinc\":\"718-7\",\"labCode\":\"HGB\",\"labDisplay\":\"Haemoglobin\"},"
+            + "{\"loinc\":\"2345-7\",\"labCode\":\"GLU\"}]}";
+    assertThat(put("/api/admin/code-map", viewer(), map).statusCode()).isEqualTo(403);
+    HttpResponse<String> saved = put("/api/admin/code-map", operator(), map);
+    assertThat(saved.statusCode()).isEqualTo(200);
+    JsonNode items = get("/api/admin/code-map").get("items");
+    assertThat(items).hasSize(2);
+    assertThat(items.get(0).get("loinc").asText()).isEqualTo("2345-7");
+    assertThat(items.get(1).get("labDisplay").asText()).isEqualTo("Haemoglobin");
+
+    // All or nothing: a bad row names itself and leaves the map as it was.
+    HttpResponse<String> twice =
+        put(
+            "/api/admin/code-map",
+            operator(),
+            "{\"items\":[{\"loinc\":\"718-7\",\"labCode\":\"A\"},{\"loinc\":\"718-7\",\"labCode\":\"B\"}]}");
+    assertThat(twice.statusCode()).isEqualTo(400);
+    assertThat(twice.body()).contains("row 2: LOINC 718-7 is mapped twice");
+    HttpResponse<String> separator =
+        put(
+            "/api/admin/code-map",
+            operator(),
+            "{\"items\":[{\"loinc\":\"718-7\",\"labCode\":\"H|B\"}]}");
+    assertThat(separator.statusCode()).isEqualTo(400);
+    assertThat(get("/api/admin/code-map").get("items")).hasSize(2);
+
+    assertThat(put("/api/admin/code-map", operator(), "{\"items\":[]}").statusCode())
+        .isEqualTo(200);
+    assertThat(get("/api/admin/code-map").get("items")).isEmpty();
+  }
 }

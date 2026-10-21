@@ -60,7 +60,8 @@ public class Hl7Inbound {
       ClinicHubClient clinichub,
       MessageLog messages,
       EventFactory events,
-      MeterRegistry meters) {
+      MeterRegistry meters,
+      LabCodes codes) {
     this.properties = properties;
     this.jdbc = jdbc;
     this.cipher = cipher;
@@ -68,7 +69,7 @@ public class Hl7Inbound {
     this.messages = messages;
     this.events = events;
     this.meters = meters;
-    this.mapper = new OruToFhir(properties.zoneId());
+    this.mapper = new OruToFhir(properties.zoneId(), codes::forLabCode);
   }
 
   /** Handles one frame and returns the ACK to write back. Never throws. */

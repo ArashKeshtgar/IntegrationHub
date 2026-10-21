@@ -6,7 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.hl7.fhir.r4.model.Bundle;
@@ -56,9 +58,19 @@ public final class OruToFhir {
       Pattern.compile("^(<=|>=|<|>)\\s*([+-]?\\d+(?:\\.\\d+)?)$");
 
   private final ZoneId zone;
+  private final Function<String, Optional<LabCodes.Entry>> codes;
 
   public OruToFhir(ZoneId zone) {
+    this(zone, code -> Optional.empty());
+  }
+
+  /**
+   * {@code codes}: the LOINC for a lab's own test code ({@link LabCodes}); a test or analyte coded
+   * only the lab's way gets the LOINC added as a second coding.
+   */
+  public OruToFhir(ZoneId zone, Function<String, Optional<LabCodes.Entry>> codes) {
     this.zone = zone;
+    this.codes = codes;
   }
 
   /**
@@ -408,6 +420,14 @@ public final class OruToFhir {
         sender);
     if (!concept.hasCoding()) {
       throw new Hl7Exception("missing test identifier");
+    }
+    boolean hasLoinc =
+        concept.getCoding().stream().anyMatch(c -> "http://loinc.org".equals(c.getSystem()));
+    String own = segment.component(field, 1);
+    if (!hasLoinc && !own.isEmpty()) {
+      codes
+          .apply(own)
+          .ifPresent(m -> concept.addCoding().setSystem("http://loinc.org").setCode(m.loinc()));
     }
     String text = segment.component(field, 2);
     if (!text.isEmpty()) {

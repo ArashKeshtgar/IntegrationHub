@@ -1,6 +1,7 @@
 package ca.arashkeshtgar.integrationhub.admin;
 
 import ca.arashkeshtgar.integrationhub.hl7.Hl7Properties;
+import ca.arashkeshtgar.integrationhub.hl7.LabCodes;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +13,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,19 +33,40 @@ public class AdminController {
   private final Alerts alerts;
   private final DeadLetters deadLetters;
   private final Hl7Properties hl7;
+  private final LabCodes codes;
 
   public AdminController(
       RouteHealth routes,
       Queues queues,
       Alerts alerts,
       DeadLetters deadLetters,
-      Hl7Properties hl7) {
+      Hl7Properties hl7,
+      LabCodes codes) {
     this.routes = routes;
     this.queues = queues;
     this.alerts = alerts;
     this.deadLetters = deadLetters;
     this.hl7 = hl7;
+    this.codes = codes;
   }
+
+  /** The external lab's test codes against LOINC (orders out, results in). */
+  @GetMapping("/api/admin/code-map")
+  public Map<String, Object> codeMap() {
+    return Map.of("items", codes.all());
+  }
+
+  /** Replaces the whole map (a write: the replay permission). 400 names the first bad row. */
+  @PutMapping("/api/admin/code-map")
+  public Map<String, Object> replaceCodeMap(@RequestBody CodeMap body) {
+    try {
+      return Map.of("items", codes.replace(body.items() == null ? List.of() : body.items()));
+    } catch (LabCodes.Invalid e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+  }
+
+  public record CodeMap(List<LabCodes.Entry> items) {}
 
   /** Who is calling and what they may do, for the web's menus. */
   @GetMapping("/api/admin/me")

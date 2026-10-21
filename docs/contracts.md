@@ -115,6 +115,15 @@ relays it unchanged. When the app answers 2xx the hub also moves the pseudonym i
 orders to the survivor's, so results that come later carry the survivor's pseudonym. A merge makes no event, and events
 already published keep the pseudonym they had (see [events.md](events.md)).
 
+**Built in the applications (21 October 2026).** ClinicHub sends the merge to each application that had a *delivered*
+order for the merged record (not the external lab: it has no merge message) and to PharmaFlow when a delivered
+prescription was; it also moves the prescriptions to the surviving record, which it did not before. ClinicReport keys
+its patients by the clinic's MRN: with both records known the merged one's reports and orders move and it is removed,
+with only the merged one known it takes the survivor's MRN. LabFlow and PharmaFlow keep their own patients (health card,
+or name and birth date) and now keep the clinic's MRN on each electronic order or prescription; a merge moves that MRN
+and, when two of their patients stood behind the two MRNs, writes "possible duplicate" in the access log and does not
+merge them on the clinic's word. All answer 200 for a record they never had, and 400 for a merge into itself.
+
 ### 7. Confidentiality labels — on orders, prescriptions and results (phase 5)
 A patient's consent directive (ClinicHub's lockbox) that covers an order or prescription is sent as a label on the
 resource: `meta.security` with a coding of the HL7 v3 Confidentiality system
@@ -126,6 +135,14 @@ code is ClinicHub's decision (open question 23).
 The hub relays labels unchanged. It logs the codes (a short code only: anything else is logged as `other`) in the
 message's `securityLabels` and counts them: `hub.consent.labelled{route,code}`, so a privacy officer can see that
 restricted items pass through. It does **not** check that a restricted order's result comes back labelled.
+
+**Built (21 October 2026).** ClinicHub: the whole record withheld (lockbox on the entire record) is `V`; one visit
+withheld, or the record withheld from a named provider, is `R` (question 23); no active directive, no label; the label
+is taken when the order or prescription is written and again when an undelivered Bundle is rebuilt. ClinicReport, LabFlow
+and PharmaFlow keep the label with the order, show it (worklist badge, reception badge, prescription detail) and put the
+same `meta.security` on the DiagnosticReport they send back (PharmaFlow sends no result). A code that is not `R` or `V` is
+read as `R`; `U`, `L`, `M`, `N` as no label. **Showing the label is as far as it goes:** the applications do not yet
+restrict who may open the item by it, so the badge is a warning to staff, not an access control.
 
 ### 8. Orders to an external lab — ClinicHub → hub → lab (phase 7)
 `POST|PUT {hub}/route/externallab/fhir`, the same order Bundle as flow 1 (and the same cancel Bundle as flow 2), with a
@@ -146,8 +163,8 @@ when the upstream is unreachable), and the sender's outbox retries.
 
 - Electronic prescriptions ClinicHub → PharmaFlow: contract and route in the hub (flow 5); ClinicHub has no
   prescribing yet and PharmaFlow no intake or sign-in through ClinicHub.
-- Patient merges are not sent to LabFlow/ClinicReport/PharmaFlow: contract and the hub's part done (flow 6).
-- Consent directives are not sent with orders: contract and the hub's part done (flow 7).
+- ~~Patient merges are not sent~~ and ~~consent directives are not sent with orders~~: both built in the applications on
+  21 October 2026 (flows 6 and 7); the applications show the label but do not yet enforce it.
 - LabFlow: "HL7 v2 ORU export (OLIS simulation)" is open.
 
 ## Identifier systems
@@ -204,10 +221,10 @@ The relay (phase 1) is built on these assumptions about ClinicHub's tokens. Chec
     LabFlow's orders), and PharmaFlow has to accept it: today it has no sign-in through ClinicHub.
 21. The DIN system name: `http://hl7.org/fhir/NamingSystem/ca-hc-din` is the one HL7 registers for Health Canada's
     Drug Identification Number; PharmaFlow's drug catalog may key drugs differently (see its mapping study).
-22. Merges: LabFlow and ClinicReport match patients by health card or name and birth date, not by MRN. Do they keep
-    the MRN of an order's patient, so that "repoint what you hold for the merged MRN" has something to find?
-23. Labels: which code does a lockbox on the entire record, on one visit and on one provider each become, and does an
-    app return the label on its results?
+22. **Answered (21 Oct 2026):** ClinicReport keys its patients by MRN. LabFlow and PharmaFlow did not keep it; they
+    do now (`SourceMrn` on the electronic order / prescription, scripts 055 and 051), so a merge has something to find.
+23. **Answered:** entire record `V`, one visit `R`, one provider `R`; ClinicReport and LabFlow return the label on their
+    results (see flow 7).
 24. The hub's pseudonym move on a merge needs ClinicHub's MRN system to be `hub.events.mrn-system` (flow 6 uses
     `urn:clinichub:{clinic}:mrn`, as an order's Patient does).
 25. Orders to an external lab (phase 7): ClinicHub's placer number is `{order id}^{clinic slug}` in ORC-2/OBR-2 and the
