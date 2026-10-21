@@ -151,9 +151,11 @@ requisition or starts the report carries on with it. ClinicReport gates `POST /a
 `/api/reports/{id}/…` route; LabFlow `POST /api/reception/electronic-orders/{id}/requisition` and every
 `/api/lab/requisitions/{id}/…` route, and its worklist lists a closed requisition with the patient shown as "Restricted"
 and no values; PharmaFlow `GET /api/prescriptions/{id}`, every action on it or its drugs and the dispensing of a drug,
-and its queue lists a closed one with the patient hidden. The web screens ask why and retry. **What it does not cover:** the
-lists in ClinicReport (worklist, report list) and LabFlow's reception list still show who and what was ordered (names
-are what staff need to find the item), and the hub, ClinicHub and Analytics see only what they always saw.
+and its queue lists a closed one with the patient hidden. The web screens ask why and retry. The lists keep a closed item
+so it is not lost, but show the patient as "Restricted" with no MRN, indication, tests or values (ClinicReport's worklist
+and report list, LabFlow's reception list and results worklist, PharmaFlow's queue) until the glass is broken. **What it
+does not cover:** the hub, ClinicHub and Analytics see only what they always saw (the hub's log is metadata, Analytics
+has pseudonyms only), and ClinicHub itself already applies its own directives.
 
 ### 8. Orders to an external lab — ClinicHub → hub → lab (phase 7)
 `POST|PUT {hub}/route/externallab/fhir`, the same order Bundle as flow 1 (and the same cancel Bundle as flow 2), with a
