@@ -53,8 +53,8 @@ Prometheus, JUnit 5 + Testcontainers + WireMock, GitHub Actions. API on `:5700`.
 | 2 | Orders, cancels and financial documents through the hub | **Done**; seen with all five applications (21 Oct 2026), ClinicReport's finance documents excepted (none was owed) |
 | 3 | Event feed to Analytics (de-identified), metrics, message search API | **Done**; seen from the real applications into Analytics' warehouse (21 Oct 2026) |
 | 4 | HL7 v2: external lab results in (ORU^R01 → FHIR), OLIS-style export out | **Done** in the hub; not tried with a real lab or OLIS; TLS and mutual TLS since phase 8 |
-| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels are sent or read by no application yet |
-| 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); no payload viewer, no e-mail alerts, replay only for HL7 |
+| 5 | New flows: e-prescriptions to PharmaFlow, patient merges, consent flags | **Done** in the hub (contracts, route, log, pseudonym on merges); e-prescriptions seen end to end (ClinicHub, hub, PharmaFlow); merges and labels sent by ClinicHub and handled (labels enforced) by ClinicReport, LabFlow and PharmaFlow since phase 8 |
+| 6 | Admin web with ClinicHub sign-in, replay, alerts; platform compose | **Done** (web, replay of HL7 dead letters, alerts to the log and a webhook, route health, message timeline, platform compose); e-mail alerts and the lab codes page since phase 8; no payload viewer and replay only for HL7, by design (phase 8) |
 | 7 | Orders to an external lab: ClinicHub's order Bundle becomes an HL7 ORM^O01 over MLLP | **Done** in the hub and ClinicHub; seen with `tools/olis-sim` as the lab, not with a real lab |
 | 8 | Closing the gaps: TLS on MLLP, the lab's test codes, the lab's order number, merges and labels in the applications, e-mail alerts | **Done**; see below for what is still not |
 
