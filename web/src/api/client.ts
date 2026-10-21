@@ -35,10 +35,11 @@ export function buildUrl(path: string, params: Params = {}): string {
 
 async function call<T>(
   session: Session,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PUT',
   path: string,
   params: Params,
   signal?: AbortSignal,
+  body?: unknown,
 ): Promise<T> {
   const token = await session.accessToken();
   if (!token) {
@@ -47,7 +48,12 @@ async function call<T>(
   }
   const response = await fetch(buildUrl(path, params), {
     method,
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
   if (response.status === 401) {
@@ -73,4 +79,8 @@ export function apiGet<T>(session: Session, path: string, params: Params = {}, s
 
 export function apiPost<T>(session: Session, path: string): Promise<T> {
   return call<T>(session, 'POST', path, {});
+}
+
+export function apiPut<T>(session: Session, path: string, body: unknown): Promise<T> {
+  return call<T>(session, 'PUT', path, {}, undefined, body);
 }

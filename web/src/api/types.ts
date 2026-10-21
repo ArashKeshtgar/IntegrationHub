@@ -8,6 +8,13 @@ export interface Me {
   hl7Enabled: boolean;
 }
 
+export interface CodeMapEntry {
+  loinc: string;
+  labCode: string;
+  labDisplay: string | null;
+  updatedAt?: string;
+}
+
 export interface RouteHealth {
   route: string;
   status: RouteStatus;

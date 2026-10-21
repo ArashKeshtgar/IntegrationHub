@@ -616,12 +616,14 @@ Closes the loop of phase 4: a result from an external lab (ORU^R01 in) answers a
 - **The lab's test codes** (`hl7_code_map`, V6, `LabCodes`, admin API `GET|PUT /api/admin/code-map`, the PUT needing the
   replay permission and replacing the whole map, a bad row named and nothing saved): an order goes out with the lab's
   code and name first and the LOINC as the alternate (`HGB^Haemoglobin^L^718-7^^LN`); a result coded only the lab's way
-  comes back with the LOINC added. A test not in the map goes as before. There is no screen for the map yet, only the API.
+  comes back with the LOINC added. A test not in the map goes as before. The admin web has a "Lab codes" page for it (the
+  replay permission to change it, read-only without); the hub's CORS now allows `PUT` for the admin origins.
 - **The lab's order number is kept.** ClinicHub now stores the filler order number a result carries (the identifier the
   hub writes from ORC-3/OBR-3) as the order's external id the first time it sees one; the ACK of an ORM carries none.
 - **Merges and confidentiality labels in the applications** (flows 6 and 7): ClinicHub sends them and labels orders and
   prescriptions; ClinicReport, LabFlow and PharmaFlow keep the label, show it and return it on their results, and
-  follow a merge. Details and what each does in [contracts.md](contracts.md#6-patient-merges--clinichub--every-app-that-received-an-order-or-prescription-for-the-merged-record).
+  follow a merge, and since the same day **enforce the label** with a logged "break the glass" override (details in
+  contracts.md, flow 7). Details and what each does in [contracts.md](contracts.md#6-patient-merges--clinichub--every-app-that-received-an-order-or-prescription-for-the-merged-record).
   The hub needed no change: it relays both unchanged.
 - **E-mail alerts** (`AlertMailer`, `hub.alerts.mail-to`, `mail-from`, Spring's `spring.mail.*`): the facts the webhook
   carries, never message content. A channel that fails is tried again with the next round, and so is the other, so a

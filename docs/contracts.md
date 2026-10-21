@@ -141,8 +141,19 @@ withheld, or the record withheld from a named provider, is `R` (question 23); no
 is taken when the order or prescription is written and again when an undelivered Bundle is rebuilt. ClinicReport, LabFlow
 and PharmaFlow keep the label with the order, show it (worklist badge, reception badge, prescription detail) and put the
 same `meta.security` on the DiagnosticReport they send back (PharmaFlow sends no result). A code that is not `R` or `V` is
-read as `R`; `U`, `L`, `M`, `N` as no label. **Showing the label is as far as it goes:** the applications do not yet
-restrict who may open the item by it, so the badge is a warning to staff, not an access control.
+read as `R`; `U`, `L`, `M`, `N` as no label.
+
+**Enforced (21 October 2026): "break the glass".** A labelled item is closed to everyone, `R` and `V` alike, until a user
+opens it for themselves with a reason: `403 {code: "restricted", label}` until `POST …/override {reason}` (at least 10
+characters) is answered 200; the override is for that user and that item, lasts one hour, is kept in memory (a restart
+closes it), and is written to the application's own audit log with who, what and why. Whoever turns an order into a
+requisition or starts the report carries on with it. ClinicReport gates `POST /api/orders/{id}/start` and every
+`/api/reports/{id}/…` route; LabFlow `POST /api/reception/electronic-orders/{id}/requisition` and every
+`/api/lab/requisitions/{id}/…` route, and its worklist lists a closed requisition with the patient shown as "Restricted"
+and no values; PharmaFlow `GET /api/prescriptions/{id}`, every action on it or its drugs and the dispensing of a drug,
+and its queue lists a closed one with the patient hidden. The web screens ask why and retry. **What it does not cover:** the
+lists in ClinicReport (worklist, report list) and LabFlow's reception list still show who and what was ordered (names
+are what staff need to find the item), and the hub, ClinicHub and Analytics see only what they always saw.
 
 ### 8. Orders to an external lab — ClinicHub → hub → lab (phase 7)
 `POST|PUT {hub}/route/externallab/fhir`, the same order Bundle as flow 1 (and the same cancel Bundle as flow 2), with a

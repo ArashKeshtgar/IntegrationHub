@@ -23,6 +23,7 @@ export function Layout() {
             Dead letters
             {deadLetters > 0 && <span className="count">{deadLetters}</span>}
           </NavLink>
+          <NavLink to="/code-map">Lab codes</NavLink>
           <NavLink to="/alerts">
             Alerts
             {alerts > 0 && <span className="count critical">{alerts}</span>}

@@ -58,7 +58,7 @@ class SecurityConfig {
   private static CorsConfigurationSource corsSource(AdminProperties admin) {
     CorsConfiguration config = new CorsConfiguration();
     config.setAllowedOrigins(admin.corsOrigins());
-    config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "OPTIONS"));
     config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
     config.setMaxAge(3600L);
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

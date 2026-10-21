@@ -5,6 +5,7 @@ import { useResource } from './api/useResource';
 import type { Me } from './api/types';
 import { Layout } from './components/Layout';
 import { Alerts } from './pages/Alerts';
+import { CodeMap } from './pages/CodeMap';
 import { DeadLetters } from './pages/DeadLetters';
 import { MessageDetail } from './pages/MessageDetail';
 import { Messages } from './pages/Messages';
@@ -44,6 +45,7 @@ function Signed() {
         <Route path="messages/:id" element={<MessageDetail />} />
         <Route path="dead-letters" element={<DeadLetters me={me.data} />} />
         <Route path="alerts" element={<Alerts />} />
+        <Route path="code-map" element={<CodeMap me={me.data} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
