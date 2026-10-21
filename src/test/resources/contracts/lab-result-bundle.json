@@ -1,0 +1,39 @@
+{
+  "resourceType": "Bundle",
+  "id": "bundle-1",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-1",
+        "status": "final",
+        "basedOn": [{ "identifier": { "system": "urn:clinichub:harbourview:service-request", "value": "42" } }],
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "718-7" }] },
+        "subject": { "display": "Zzyzx Testpatient" },
+        "conclusion": "MARKER-CONCLUSION-TEXT"
+      },
+      "request": { "method": "POST", "url": "DiagnosticReport" }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-2",
+        "status": "amended",
+        "basedOn": [{ "reference": "ServiceRequest?identifier=urn:clinichub:harbourview:service-request|43" }],
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "2160-0" }] }
+      },
+      "request": { "method": "POST", "url": "DiagnosticReport" }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "718-7" }] },
+        "valueString": "MARKER-RESULT-VALUE"
+      },
+      "request": { "method": "POST", "url": "Observation" }
+    }
+  ]
+}

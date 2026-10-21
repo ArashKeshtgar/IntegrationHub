@@ -1,0 +1,162 @@
+server:
+  port: 5700
+  tomcat:
+    # The cancel is PUT .../ServiceRequest?identifier=system|42. Tomcat refuses a raw | (and these)
+    # in a query by default; the relay percent-encodes them when it forwards.
+    relaxed-query-chars: '|,{,},[,],^,<,>,",`,\'
+
+spring:
+  application:
+    name: integrationhub
+  datasource:
+    url: ${HUB_DB_URL:jdbc:postgresql://localhost:5433/integrationhub}
+    username: ${HUB_DB_USER:integrationhub}
+    password: ${HUB_DB_PASSWORD:integrationhub}
+  flyway:
+    enabled: true
+  rabbitmq:
+    host: ${HUB_RABBITMQ_HOST:localhost}
+    port: ${HUB_RABBITMQ_PORT:5672}
+    username: ${HUB_RABBITMQ_USER:guest}
+    password: ${HUB_RABBITMQ_PASSWORD:guest}
+    connection-timeout: 5s
+    publisher-confirm-type: correlated
+
+management:
+  health:
+    # The relay works with the broker down (events wait in the outbox), so its state is a metric
+    # (hub.events.outbox.*), not a reason for the health check to fail.
+    rabbit:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    git:
+      mode: simple
+    build:
+      enabled: true
+
+hub:
+  events:
+    # De-identified events to RabbitMQ (docs/events.md). Off until a secret is set.
+    enabled: ${HUB_EVENTS_ENABLED:false}
+    pseudonym-secret: ${HUB_EVENTS_PSEUDONYM_SECRET:}
+    mrn-system: urn:clinichub:{clinic}:mrn
+    exchange: clinical.events
+    queue: analytics.clinical-events
+  hl7:
+    # HL7 v2 (docs/architecture.md, phase 4): ORU^R01 in over MLLP -> FHIR -> ClinicHub, and an ORU^R01 copy of the
+    # results the hub relays to an OLIS-style receiver. Off until a queue key and the ClinicHub secret are set.
+    enabled: ${HUB_HL7_ENABLED:false}
+    # 32 random bytes, base64 (openssl rand -base64 32). Encrypts queued messages at rest.
+    queue-key: ${HUB_HL7_QUEUE_KEY:}
+    zone: ${HUB_HL7_ZONE:America/Toronto}
+    # MSH-3.MSH-4 of the senders to accept, e.g. EXTLAB.LAB1. Empty = any sender.
+    allowed-senders: ${HUB_HL7_ALLOWED_SENDERS:}
+    # A message the hub gave up on, or ClinicHub refused, keeps its (encrypted) payload this many days so it can be
+    # replayed from the admin web; then the payload is dropped. 0 = drop it at once (no replay).
+    replay-window-days: ${HUB_HL7_REPLAY_WINDOW_DAYS:7}
+    mllp:
+      port: ${HUB_HL7_MLLP_PORT:2575}
+      bind-address: ${HUB_HL7_MLLP_BIND:0.0.0.0}
+      # MLLP over TLS with tls.key-store's certificate; client-auth none, want or need (the lab's certificate).
+      tls: ${HUB_HL7_MLLP_TLS:false}
+      client-auth: ${HUB_HL7_MLLP_CLIENT_AUTH:none}
+    # PKCS12 stores for MLLP over TLS: the hub's key and certificate, and what it trusts (empty = the JVM's roots).
+    tls:
+      key-store: ${HUB_HL7_TLS_KEY_STORE:}
+      key-store-password: ${HUB_HL7_TLS_KEY_STORE_PASSWORD:}
+      trust-store: ${HUB_HL7_TLS_TRUST_STORE:}
+      trust-store-password: ${HUB_HL7_TLS_TRUST_STORE_PASSWORD:}
+    clinichub:
+      token-url: ${HUB_CLINICHUB_TOKEN_URL:${HUB_AUTH_ISSUER:http://localhost:5301/}connect/token}
+      fhir-url: ${HUB_CLINICHUB_FHIR_URL:${HUB_ROUTE_CLINICHUB_UPSTREAM:http://localhost:5300}/fhir}
+      client-id: integrationhub
+      client-secret: ${HUB_CLINICHUB_CLIENT_SECRET:}
+      scope: results
+    # The external laboratory that takes ClinicHub's orders as ORM^O01 (route "externallab", docs/architecture.md, phase 7).
+    # Empty host = that route answers 503. Not affected by "enabled": it needs no queue.
+    lab:
+      host: ${HUB_HL7_LAB_HOST:}
+      port: ${HUB_HL7_LAB_PORT:2577}
+      tls: ${HUB_HL7_LAB_TLS:false}
+    outbound:
+      enabled: ${HUB_HL7_OUTBOUND_ENABLED:false}
+      host: ${HUB_HL7_OUTBOUND_HOST:}
+      port: ${HUB_HL7_OUTBOUND_PORT:2576}
+      tls: ${HUB_HL7_OUTBOUND_TLS:false}
+  admin:
+    # Reading the message log and metrics: a ClinicHub token with this permission.
+    permission: integrationhub:messages.view
+    # Replaying a given-up HL7 message (POST under /api/admin). ClinicHub hands the admin web its permissions
+    # without the prefix; both spellings are accepted.
+    replay-permission: integrationhub:messages.replay
+    audience: ''
+    local-access: false
+    # Pages that may call the API from a browser (the admin web), comma separated: http://localhost:5701
+    cors-origins: ${HUB_ADMIN_CORS_ORIGINS:}
+  alerts:
+    # A route is down after N failed calls and no answer from its upstream in the window; see AlertProperties.
+    enabled: ${HUB_ALERTS_ENABLED:true}
+    interval: 30s
+    route-down-after: ${HUB_ALERTS_ROUTE_DOWN_AFTER:5m}
+    route-down-min-failures: ${HUB_ALERTS_ROUTE_DOWN_MIN_FAILURES:3}
+    # Optional: POST {kind, subject, state, times, detail} here when an alert opens or resolves. No content.
+    webhook-url: ${HUB_ALERTS_WEBHOOK_URL:}
+    # Optional e-mail of the same alerts (no message content): recipients, comma separated, and the sender. The server
+    # is spring.mail.* (SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD).
+    mail-to: ${HUB_ALERTS_MAIL_TO:}
+    mail-from: ${HUB_ALERTS_MAIL_FROM:integrationhub@localhost}
+  auth:
+    # ClinicHub (OpenIddict). Keys are read from {issuer}.well-known/jwks unless jwks-uri is set.
+    issuer: ${HUB_AUTH_ISSUER:http://localhost:5301/}
+    jwks-uri: ${HUB_AUTH_JWKS_URI:}
+  max-body-bytes: 33554432
+  routes:
+    # Results from LabFlow and ClinicReport to ClinicHub: /route/clinichub/fhir
+    clinichub:
+      upstream: ${HUB_ROUTE_CLINICHUB_UPSTREAM:http://localhost:5300}
+      timeout: 30s
+      connect-timeout: 5s
+      required-scopes: [results]
+    # Orders and cancels from ClinicHub: /route/labflow/fhir
+    labflow:
+      upstream: ${HUB_ROUTE_LABFLOW_UPSTREAM:http://localhost:5180}
+      allowed-audiences: [labflow]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
+    clinicreport:
+      upstream: ${HUB_ROUTE_CLINICREPORT_UPSTREAM:http://localhost:5290}
+      allowed-audiences: [clinicreport]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
+    # Electronic prescriptions and patient merges from ClinicHub: /route/pharmaflow/fhir
+    pharmaflow:
+      upstream: ${HUB_ROUTE_PHARMAFLOW_UPSTREAM:http://localhost:5500}
+      allowed-audiences: [pharmaflow]
+      required-scopes: [prescriptions]
+      allowed-methods: [POST]
+    # Orders and cancels for an external laboratory, from ClinicHub: /route/externallab/fhir. No HTTP upstream: the hub
+    # turns the order Bundle into an ORM^O01 and sends it over MLLP to hub.hl7.lab (phase 7).
+    externallab:
+      hl7-order: true
+      allowed-audiences: [externallab]
+      required-scopes: [orders]
+      allowed-methods: [POST, PUT]
+    # Financial documents from every application: /route/finance/api/integration/documents
+    finance:
+      upstream: ${HUB_ROUTE_FINANCE_UPSTREAM:http://localhost:5400}
+      allowed-audiences: [finance]
+      required-scopes: [finance]
+      allowed-paths: [/api/integration/documents]
+      body-format: finance-documents
+      forward-headers: [X-Finance-Key]
+      # Development only: set to X-Finance-Key to let a call with that header and no token through
+      # (FinancePowerApp then checks the key). Empty = a token is always required.
+      api-key-header: ${HUB_ROUTE_FINANCE_API_KEY_HEADER:}

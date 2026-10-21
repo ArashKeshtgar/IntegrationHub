@@ -1,0 +1,17 @@
+{
+  "resourceType": "Bundle",
+  "id": "result-bundle-2",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-z",
+        "status": "final",
+        "basedOn": [{ "identifier": { "system": "urn:clinichub:harbourview:service-request", "value": "999" } }],
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "6690-2" }] }
+      },
+      "request": { "method": "POST", "url": "DiagnosticReport" }
+    }
+  ]
+}

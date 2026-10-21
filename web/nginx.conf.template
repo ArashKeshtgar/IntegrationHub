@@ -1,0 +1,19 @@
+server {
+  listen 80;
+  # Cookies are per host, not per port: on localhost the browser also sends ClinicHub's (large) sign-in
+  # cookies here, which overflow nginx's default 8k header buffers.
+  large_client_header_buffers 4 32k;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Only the admin API and the message log are proxied; the relay (/route) and the metrics are not reachable from here.
+  location /api/ {
+    proxy_pass ${HUB_API_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

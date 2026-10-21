@@ -1,0 +1,11 @@
+# Development: `--spring.profiles.active=dev`
+hub:
+  admin:
+    # The message search and metrics are open to calls from this machine (not when a proxy forwards them).
+    local-access: true
+    # The admin web (web/, npm run dev).
+    cors-origins: http://localhost:5701
+  routes:
+    finance:
+      # FinancePowerApp takes a development key instead of a token (contracts.md, question 9); PharmaFlow sends only that.
+      api-key-header: X-Finance-Key

@@ -1,0 +1,10 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction-response",
+  "entry": [
+    { "response": { "status": "201 Created", "location": "Patient/7001/_history/1" } },
+    { "response": { "status": "201 Created", "location": "Practitioner/7002/_history/1" } },
+    { "response": { "status": "201 Created", "location": "ServiceRequest/9001/_history/1" } },
+    { "response": { "status": "201 Created", "location": "ServiceRequest/9002/_history/1" } }
+  ]
+}

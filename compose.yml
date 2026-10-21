@@ -1,0 +1,35 @@
+# Local development. PostgreSQL on 5433 so it does not clash with a local installation on 5432.
+# RabbitMQ carries the de-identified event feed (phase 3): AMQP on 5672, management UI on 15672.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: integrationhub
+      POSTGRES_USER: integrationhub
+      POSTGRES_PASSWORD: integrationhub
+    ports:
+      - "5433:5432"
+    volumes:
+      - hub-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integrationhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - hub-mq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hub-pg:
+  hub-mq:

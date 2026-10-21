@@ -1,0 +1,377 @@
+/* Colour tokens. Light is the default; dark is selected, not inverted. Status is never colour alone:
+   every badge and status has a word or mark beside it. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6f6d67;
+  --grid: #e1e0d9;
+  --ring: rgba(11, 11, 11, 0.1);
+  --hover: rgba(11, 11, 11, 0.05);
+  --accent: #1c5cab;
+  --accent-ink: #ffffff;
+  --good: #006300;
+  --warn: #8a5300;
+  --critical: #b02a2a;
+  --focus: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #a09e97;
+    --grid: #2c2c2a;
+    --ring: rgba(255, 255, 255, 0.1);
+    --hover: rgba(255, 255, 255, 0.07);
+    --accent: #6da7ec;
+    --accent-ink: #0b0b0b;
+    --good: #0ca30c;
+    --warn: #e0a030;
+    --critical: #ec6a6a;
+    --focus: #6da7ec;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+a {
+  color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+h1 {
+  font-size: 1.4rem;
+  margin: 0.2rem 0 1rem;
+}
+h2 {
+  font-size: 1.05rem;
+  margin: 1.8rem 0 0.6rem;
+}
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 1.2rem 16px 3rem;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 0.85rem;
+}
+.mono {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--critical);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--grid);
+}
+.brand {
+  font-weight: 650;
+}
+.top nav {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.top nav a {
+  color: var(--ink-2);
+  text-decoration: none;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+}
+.top nav a:hover {
+  background: var(--hover);
+}
+.top nav a.active {
+  color: var(--ink);
+  background: var(--hover);
+  font-weight: 600;
+}
+.count {
+  margin-left: 0.4rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: var(--warn);
+  color: var(--page);
+}
+.count.critical {
+  background: var(--critical);
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ink-2);
+}
+
+.center {
+  min-height: 60vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.8rem;
+  text-align: center;
+  padding: 16px;
+}
+
+.btn {
+  font: inherit;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--ring);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn.quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.8rem;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+}
+.tile.critical {
+  border-color: var(--critical);
+}
+.tile-label {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+.tile-value {
+  font-size: 1.9rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.tile.critical .tile-value {
+  color: var(--critical);
+}
+.tile-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: 8px;
+  overflow: hidden;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--grid);
+  vertical-align: top;
+}
+th {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+tr.row-link {
+  cursor: pointer;
+}
+tr.row-link:hover {
+  background: var(--hover);
+}
+@media (max-width: 720px) {
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+.badge {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge.ok {
+  color: var(--good);
+}
+.badge.idle {
+  color: var(--muted);
+}
+.badge.degraded {
+  color: var(--warn);
+}
+.badge.down {
+  color: var(--critical);
+}
+.http.good {
+  color: var(--good);
+}
+.http.warn {
+  color: var(--warn);
+}
+.http.bad {
+  color: var(--critical);
+  font-weight: 650;
+}
+
+.filters {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+.filters label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+input,
+select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--ring);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.pager {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-top: 0.8rem;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.2rem;
+  margin: 0;
+}
+.facts dt {
+  color: var(--ink-2);
+}
+.facts dd {
+  margin: 0;
+}
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-left: 2px solid var(--grid);
+}
+.timeline li {
+  padding: 0.3rem 0 0.3rem 0.9rem;
+}
+.timeline .when {
+  color: var(--muted);
+  margin-right: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.timeline li.not-forwarded,
+.timeline li.event-waiting {
+  border-left: 3px solid var(--critical);
+  margin-left: -2px;
+}
+.timeline li.replay {
+  border-left: 3px solid var(--accent);
+  margin-left: -2px;
+}
+.related {
+  padding-left: 1.1rem;
+}
+
+.problem,
+.notice {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--critical);
+  color: var(--critical);
+  margin: 0.8rem 0;
+}
+.notice.good {
+  border-color: var(--good);
+  color: var(--good);
+}
+.notice.bad {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+.confirm {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--ring);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 0.8rem;
+}
+.segmented button {
+  font: inherit;
+  padding: 0.3rem 0.9rem;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.segmented button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}

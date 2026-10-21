@@ -1,0 +1,47 @@
+{
+  "resourceType": "Bundle",
+  "id": "prescription-bundle-1",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:patient-1",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          { "system": "urn:clinichub:harbourview:mrn", "value": "MRN-MARKER-0001" },
+          { "system": "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-patient-hcn", "value": "HC-MARKER-123456" }
+        ],
+        "name": [{ "family": "Zzyzx", "given": ["Testpatient"] }],
+        "birthDate": "1900-01-01"
+      },
+      "request": { "method": "POST", "url": "Patient" }
+    },
+    {
+      "fullUrl": "urn:uuid:practitioner-1",
+      "resource": {
+        "resourceType": "Practitioner",
+        "identifier": [{ "system": "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-license-physician", "value": "CPSO-MARKER-000000" }],
+        "name": [{ "family": "Synthetic", "given": ["Doc"] }]
+      },
+      "request": { "method": "POST", "url": "Practitioner" }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "identifier": [{ "system": "urn:clinichub:harbourview:prescription", "value": "501" }],
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [{ "system": "http://hl7.org/fhir/NamingSystem/ca-hc-din", "code": "DIN-MARKER-99999999", "display": "MARKER-DRUG-NAME" }]
+        },
+        "subject": { "reference": "urn:uuid:patient-1" },
+        "authoredOn": "2026-10-18",
+        "requester": { "reference": "urn:uuid:practitioner-1" },
+        "dosageInstruction": [{ "text": "MARKER-SIG one tablet twice daily" }],
+        "dispenseRequest": { "numberOfRepeatsAllowed": 2, "quantity": { "value": 60 } },
+        "note": [{ "text": "MARKER-NOTE-TEXT" }]
+      },
+      "request": { "method": "POST", "url": "MedicationRequest" }
+    }
+  ]
+}
